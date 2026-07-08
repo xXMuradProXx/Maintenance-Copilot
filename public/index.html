@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Maintenance Copilot — Tenant Request Triage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#1d2733;        /* deep slate — ops side */
+    --paper:#f5f1e7;      /* warm paper — tenant side (team deck palette) */
+    --pine:#17685b;       /* brand green */
+    --pine-soft:#e2ece8;
+    --amber:#b97e14;
+    --signal:#bf3b2b;     /* emergency red */
+    --card:#ffffff;
+    --line:#e3dccb;
+    --muted:#6b7280;
+    --radius:14px;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --body:'Public Sans',system-ui,sans-serif;
+    --display:'Fraunces',Georgia,serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--body);background:var(--paper);color:var(--ink);display:flex;flex-direction:column}
+  button{font-family:inherit;cursor:pointer}
+  :focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
+
+  /* ---------- header ---------- */
+  header{background:var(--ink);color:#f4f0e6;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .wordmark{font-family:var(--display);font-weight:650;font-size:1.28rem;letter-spacing:.2px}
+  .wordmark em{color:#8fd3c5;font-style:normal}
+  .sub{font-size:.78rem;color:#b9c2cc;font-family:var(--mono)}
+  header .spacer{flex:1}
+  .case-chip{font-family:var(--mono);font-size:.78rem;background:#2b3a4a;padding:6px 12px;border-radius:999px;color:#dfe7ee}
+  .btn-ghost{background:transparent;border:1px solid #4b5a6a;color:#dfe7ee;border-radius:999px;padding:6px 14px;font-size:.8rem}
+  .btn-ghost:hover{border-color:#8fd3c5;color:#8fd3c5}
+
+  /* ---------- layout ---------- */
+  main{flex:1;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:20px;padding:20px 22px;max-width:1240px;width:100%;margin:0 auto;min-height:0}
+  @media(max-width:920px){main{grid-template-columns:1fr;overflow:visible}}
+
+  /* ---------- chat ---------- */
+  .chat{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);min-height:520px;max-height:calc(100vh - 118px);overflow:hidden}
+  @media(max-width:920px){.chat{max-height:none;height:72vh}}
+  .chat-head{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .chat-head h2{font-family:var(--display);font-weight:650;font-size:1rem}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--pine);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .messages{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px;background:
+    linear-gradient(180deg,#fbf8f1 0,#fff 120px)}
+  .bubble{max-width:82%;padding:11px 15px;border-radius:14px;font-size:.92rem;line-height:1.5;white-space:pre-wrap;animation:rise .28s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .bubble.tenant{align-self:flex-end;background:var(--pine);color:#fff;border-bottom-right-radius:4px}
+  .bubble.copilot{align-self:flex-start;background:#f5f2e9;border:1px solid var(--line);border-bottom-left-radius:4px}
+  .bubble.error{align-self:center;background:#fdeceb;border:1px solid #f0b9b2;color:#8a2417;font-size:.85rem}
+  .bubble .who{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;opacity:.65;margin-bottom:4px}
+  .typing{align-self:flex-start;display:flex;gap:5px;padding:14px 16px;background:#f5f2e9;border:1px solid var(--line);border-radius:14px}
+  .typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+
+  .chips{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 10px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:.78rem;color:var(--ink)}
+  .chip:hover{border-color:var(--pine);color:var(--pine)}
+
+  .composer{border-top:1px solid var(--line);padding:12px 16px;display:flex;flex-direction:column;gap:10px;background:#fdfbf5}
+  .channels{display:flex;gap:2px;background:#eee8d8;border-radius:999px;padding:3px;width:max-content}
+  .channels button{border:none;background:transparent;border-radius:999px;padding:5px 13px;font-size:.76rem;font-family:var(--mono);color:var(--muted)}
+  .channels button[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .inputrow{display:flex;gap:10px}
+  textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:10px;padding:11px 13px;font:inherit;font-size:.92rem;background:#fff;min-height:48px;max-height:140px}
+  textarea:focus{border-color:var(--pine);outline:none;box-shadow:0 0 0 3px rgba(23,104,91,.14)}
+  .send{background:var(--pine);color:#fff;border:none;border-radius:10px;padding:0 22px;font-weight:600;font-size:.92rem}
+  .send:hover{background:#125243}
+  .send:disabled{background:#9db8b1;cursor:not-allowed}
+
+  /* ---------- ops rail ---------- */
+  .rail{display:flex;flex-direction:column;gap:18px;min-height:0;overflow-y:auto;max-height:calc(100vh - 118px);padding-bottom:4px}
+  @media(max-width:920px){.rail{max-height:none;overflow:visible}}
+
+  /* work-order ticket (signature element) */
+  .ticket{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);position:relative;box-shadow:0 8px 22px rgba(29,39,51,.07)}
+  .ticket-stub{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:2px dashed var(--line);position:relative}
+  .ticket-stub::before,.ticket-stub::after{content:"";position:absolute;bottom:-9px;width:16px;height:16px;border-radius:50%;background:var(--paper);border:1px solid var(--line)}
+  .ticket-stub::before{left:-9px}.ticket-stub::after{right:-9px}
+  .ticket-stub h2{font-family:var(--display);font-weight:650;font-size:1.02rem}
+  .status-pill{font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;border-radius:999px;background:#eee8d8;color:var(--muted)}
+  .status-pill[data-s="scheduled"]{background:var(--pine-soft);color:var(--pine)}
+  .status-pill[data-s="escalated"]{background:#fdeceb;color:var(--signal)}
+  .status-pill[data-s="needs_info"],.status-pill[data-s="awaiting_tenant"]{background:#f8ecd4;color:var(--amber)}
+  .status-pill[data-s="resolved"]{background:#e4efe4;color:#2c6b33}
+
+  .ticket-body{padding:16px 18px 18px;position:relative}
+  .fields{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+  .field{min-width:0}
+  .field label{display:block;font-family:var(--mono);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+  .field div{font-size:.88rem;font-weight:500;overflow-wrap:anywhere}
+  .field.wide{grid-column:1/-1}
+  .stamp{position:absolute;top:10px;right:14px;font-family:var(--mono);font-weight:600;font-size:.78rem;letter-spacing:.14em;padding:5px 12px;border:2.5px solid currentColor;border-radius:6px;transform:rotate(-7deg);opacity:0;pointer-events:none}
+  .stamp.show{animation:stampIn .35s cubic-bezier(.2,1.6,.4,1) both}
+  @keyframes stampIn{from{opacity:0;transform:rotate(-7deg) scale(1.7)}to{opacity:.92;transform:rotate(-7deg) scale(1)}}
+  .stamp[data-u="EMERGENCY"]{color:var(--signal)}
+  .stamp[data-u="URGENT"]{color:var(--amber)}
+  .stamp[data-u="ROUTINE"]{color:var(--pine)}
+  .banner{margin-top:14px;border-radius:9px;padding:9px 12px;font-size:.8rem;display:none}
+  .banner.safety{display:block;background:#fdeceb;border:1px solid #f0b9b2;color:#8a2417}
+  .banner.appt{display:block;background:var(--pine-soft);border:1px solid #bcd6cd;color:#0f4c40}
+
+  /* agent trace */
+  .tracecard{background:var(--ink);color:#dfe7ee;border-radius:var(--radius);padding:16px 18px;flex:1;min-height:200px}
+  .tracecard h2{font-family:var(--display);font-weight:650;font-size:1rem;color:#f4f0e6;margin-bottom:4px}
+  .tracecard p.hint{font-size:.76rem;color:#8fa0b0;margin-bottom:12px}
+  .trace{list-style:none;display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:.74rem;line-height:1.45}
+  .trace li{display:grid;grid-template-columns:26px 132px 1fr;gap:8px;align-items:baseline;animation:rise .25s ease both}
+  .trace .n{color:#5f7183}
+  .trace .actor{color:#8fd3c5;overflow-wrap:anywhere}
+  .trace li[data-a^="safety"] .actor{color:#f2a196}
+  .trace li[data-a="supervisor"] .actor{color:#e9c46a}
+  .trace .d{color:#c6d0da;overflow-wrap:anywhere}
+  .trace-empty{color:#8fa0b0;font-size:.8rem;font-family:var(--body)}
+
+  footer{padding:10px 22px 16px;text-align:center;font-size:.72rem;color:var(--muted)}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="wordmark">Maintenance <em>Copilot</em></div>
+    <div class="sub">tenant request → work order → next state</div>
+  </div>
+  <div class="spacer"></div>
+  <span class="case-chip" id="caseChip">no open case</span>
+  <button class="btn-ghost" id="resetBtn" type="button">New case</button>
+</header>
+
+<main>
+  <!-- ============ chat ============ -->
+  <section class="chat" aria-label="Tenant conversation">
+    <div class="chat-head"><span class="dot" aria-hidden="true"></span><h2>Tenant conversation</h2></div>
+
+    <div class="messages" id="messages" aria-live="polite"></div>
+
+    <div class="chips" id="chips">
+      <button class="chip" type="button">The kitchen sink is clogged and water drains very slowly. Apt 4B.</button>
+      <button class="chip" type="button">No heat again since yesterday, apartment 12C</button>
+      <button class="chip" type="button">The wall is wet and smells bad</button>
+      <button class="chip" type="button">I smell gas in my kitchen!!</button>
+    </div>
+
+    <div class="composer">
+      <div class="channels" id="channels" role="group" aria-label="Message channel">
+        <button type="button" data-ch="portal" aria-pressed="true">Portal</button>
+        <button type="button" data-ch="whatsapp" aria-pressed="false">WhatsApp</button>
+        <button type="button" data-ch="sms" aria-pressed="false">SMS</button>
+        <button type="button" data-ch="email" aria-pressed="false">Email</button>
+      </div>
+      <div class="inputrow">
+        <textarea id="input" rows="1" placeholder="Type a tenant message… (Enter to send, Shift+Enter for a new line)" aria-label="Tenant message"></textarea>
+        <button class="send" id="sendBtn" type="button">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ops rail ============ -->
+  <aside class="rail" aria-label="Case operations">
+    <div class="ticket">
+      <div class="ticket-stub">
+        <h2>Work order</h2>
+        <span class="status-pill" id="statusPill" data-s="new">New</span>
+      </div>
+      <div class="ticket-body">
+        <span class="stamp" id="stamp" aria-hidden="true"></span>
+        <div class="fields">
+          <div class="field"><label>Case</label><div id="fCase">—</div></div>
+          <div class="field"><label>Unit</label><div id="fUnit">—</div></div>
+          <div class="field"><label>Category</label><div id="fCat">—</div></div>
+          <div class="field"><label>Problem code</label><div id="fCode">—</div></div>
+          <div class="field"><label>Urgency</label><div id="fUrg">—</div></div>
+          <div class="field"><label>Vendor trade</label><div id="fTrade">—</div></div>
+          <div class="field wide"><label>Summary</label><div id="fSummary">—</div></div>
+          <div class="field wide"><label>Missing info</label><div id="fMissing">—</div></div>
+        </div>
+        <div class="banner safety" id="safetyBanner" hidden></div>
+        <div class="banner appt" id="apptBanner" hidden></div>
+      </div>
+    </div>
+
+    <div class="tracecard">
+      <h2>Agent trace</h2>
+      <p class="hint">Every decision travels with the work order.</p>
+      <ol class="trace" id="trace"><li class="trace-empty">No decisions yet — send a tenant message.</li></ol>
+    </div>
+  </aside>
+</main>
+
+<footer>Course demo — Introduction to Modern AI Agents · Aviv Fedida &amp; Murad Rahimli. Not a substitute for emergency services: if you are in danger, call your local emergency number.</footer>
+
+<script>
+"use strict";
+const API_URL = "/api/chat";
+
+const state = { caseState: null, history: [], channel: "portal", busy: false };
+
+const $ = (id) => document.getElementById(id);
+const messagesEl = $("messages"), inputEl = $("input"), sendBtn = $("sendBtn");
+
+const STATUS_LABELS = {
+  new: "New", needs_info: "Waiting for tenant info", awaiting_tenant: "Awaiting tenant choice",
+  scheduled: "Scheduled", escalated: "Escalated to manager", resolved: "Resolved",
+};
+
+/* ---------- chat rendering (XSS-safe: textContent only) ---------- */
+function addBubble(kind, text) {
+  const div = document.createElement("div");
+  div.className = "bubble " + kind;
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = kind === "tenant" ? "Tenant" : kind === "copilot" ? "Maintenance Copilot" : "Error";
+  const body = document.createElement("span");
+  body.textContent = text;
+  div.append(who, body);
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+let typingEl = null;
+function showTyping() {
+  typingEl = document.createElement("div");
+  typingEl.className = "typing";
+  typingEl.innerHTML = "<i></i><i></i><i></i>";
+  typingEl.setAttribute("aria-label", "Copilot is thinking");
+  messagesEl.appendChild(typingEl);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function hideTyping() { if (typingEl) { typingEl.remove(); typingEl = null; } }
+
+/* ---------- work-order ticket ---------- */
+function setField(id, value) { $(id).textContent = value || "—"; }
+
+function renderTicket() {
+  const c = state.caseState;
+  if (!c) return;
+  $("caseChip").textContent = c.case_id || "no open case";
+  const pill = $("statusPill");
+  pill.dataset.s = c.status || "new";
+  pill.textContent = STATUS_LABELS[c.status] || c.status || "New";
+
+  setField("fCase", c.case_id);
+  setField("fUnit", c.unit);
+  setField("fCat", c.issue_category);
+  setField("fCode", c.problem_code);
+  setField("fUrg", c.urgency);
+  setField("fTrade", c.vendor_trade);
+  setField("fSummary", c.summary);
+  setField("fMissing", (c.missing_info || []).join(", "));
+
+  const stamp = $("stamp");
+  if (c.urgency) {
+    stamp.textContent = c.urgency;
+    stamp.dataset.u = c.urgency;
+    stamp.classList.remove("show");
+    void stamp.offsetWidth;           // restart the stamp animation
+    stamp.classList.add("show");
+  } else {
+    stamp.classList.remove("show");
+    stamp.textContent = "";
+  }
+
+  const sb = $("safetyBanner");
+  if (c.safety_flag) {
+    sb.hidden = false;
+    sb.textContent = "⚠ Safety pre-filter: " + (c.safety_reason || "hazard flagged") +
+      (c.escalation_reason ? " · " + c.escalation_reason : "");
+  } else { sb.hidden = true; }
+
+  const ab = $("apptBanner");
+  if (c.appointment) {
+    ab.hidden = false;
+    ab.textContent = "✓ Booked: " + c.appointment.vendor_name + " — " + c.appointment.label;
+  } else { ab.hidden = true; }
+}
+
+/* ---------- agent trace ---------- */
+function renderTrace() {
+  const traceEl = $("trace");
+  traceEl.innerHTML = "";
+  const entries = (state.caseState && state.caseState.trace) || [];
+  if (!entries.length) {
+    const li = document.createElement("li");
+    li.className = "trace-empty";
+    li.textContent = "No decisions yet — send a tenant message.";
+    traceEl.appendChild(li);
+    return;
+  }
+  for (const e of entries) {
+    const li = document.createElement("li");
+    li.dataset.a = e.actor || "";
+    const n = document.createElement("span"); n.className = "n"; n.textContent = String(e.step).padStart(2, "0");
+    const a = document.createElement("span"); a.className = "actor"; a.textContent = (e.actor || "") + " · " + (e.action || "");
+    const d = document.createElement("span"); d.className = "d"; d.textContent = e.detail || "";
+    li.append(n, a, d);
+    traceEl.appendChild(li);
+  }
+  traceEl.parentElement.scrollTop = traceEl.parentElement.scrollHeight;
+}
+
+/* ---------- send flow ---------- */
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || state.busy) return;
+  state.busy = true;
+  sendBtn.disabled = true;
+  inputEl.value = "";
+  autoGrow();
+
+  addBubble("tenant", text);
+  state.history.push({ role: "user", content: text });
+  showTyping();
+
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        channel: state.channel,
+        history: state.history.slice(0, -1),   // server appends the current message itself
+        case_state: state.caseState,
+      }),
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* non-JSON error body */ }
+    if (!res.ok) {
+      const detail = data && (data.detail || data.error);
+      throw new Error(detail || ("Request failed with status " + res.status));
+    }
+    state.caseState = data.case_state;
+    state.history.push({ role: "assistant", content: data.reply });
+    addBubble("copilot", data.reply);
+    renderTicket();
+    renderTrace();
+  } catch (err) {
+    state.history.pop();               // let the tenant resend the same message
+    addBubble("error", "Couldn't reach the agent: " + err.message + " — check the server and your API keys, then try again.");
+  } finally {
+    hideTyping();
+    state.busy = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+
+/* ---------- reset ---------- */
+function resetCase() {
+  state.caseState = null;
+  state.history = [];
+  messagesEl.innerHTML = "";
+  $("caseChip").textContent = "no open case";
+  $("statusPill").dataset.s = "new";
+  $("statusPill").textContent = "New";
+  ["fCase","fUnit","fCat","fCode","fUrg","fTrade","fSummary","fMissing"].forEach((id) => setField(id, ""));
+  $("stamp").classList.remove("show");
+  $("safetyBanner").hidden = true;
+  $("apptBanner").hidden = true;
+  renderTrace();
+  greet();
+}
+
+function greet() {
+  addBubble("copilot",
+    "Hi! I'm Maintenance Copilot, the maintenance assistant for this building. " +
+    "Describe the problem in your own words — and include your apartment number so I can open a work order right away.");
+}
+
+/* ---------- wiring ---------- */
+sendBtn.addEventListener("click", send);
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+function autoGrow() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
+}
+inputEl.addEventListener("input", autoGrow);
+
+$("chips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  inputEl.value = chip.textContent;
+  autoGrow();
+  inputEl.focus();
+});
+
+$("channels").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-ch]");
+  if (!btn) return;
+  state.channel = btn.dataset.ch;
+  document.querySelectorAll("#channels button").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b === btn)));
+});
+
+$("resetBtn").addEventListener("click", () => {
+  if (!state.history.length || confirm("Start a new case? The current conversation will be cleared.")) resetCase();
+});
+
+greet();
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+fastapi>=0.111,<1
+uvicorn>=0.30
+openai>=1.40,<2
+pinecone>=5.0,<8
+python-dotenv>=1.0
