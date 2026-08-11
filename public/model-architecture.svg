@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f4ec"/><stop offset="1" stop-color="#e8f1ee"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#314b57"/>
+    </marker>
+    <filter id="shadow"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-opacity=".16"/></filter>
+    <style>
+      .title{font:700 42px Arial,sans-serif;fill:#173b35}.sub{font:20px Arial,sans-serif;fill:#53666c}
+      .box{stroke-width:2;rx:18;filter:url(#shadow)}.name{font:700 23px Arial,sans-serif;fill:#153d37;text-anchor:middle}
+      .desc{font:17px Arial,sans-serif;fill:#486068;text-anchor:middle}.arrow{stroke:#314b57;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .small{font:700 16px Arial,sans-serif;fill:#50666c;text-anchor:middle;letter-spacing:1px}
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#bg)"/>
+  <text x="80" y="75" class="title">Maintenance Copilot - Agent Architecture</text>
+  <text x="80" y="110" class="sub">A guarded supervisor chooses tools, updates shared state, and returns a fully audited response.</text>
+
+  <rect class="box" x="80" y="180" width="250" height="105" fill="#fff" stroke="#8ba39d"/>
+  <text x="205" y="225" class="name">Tenant / API Request</text><text x="205" y="255" class="desc">POST /api/execute</text>
+  <path class="arrow" d="M330 232 H405"/>
+
+  <rect class="box" x="410" y="180" width="250" height="105" fill="#fff1e8" stroke="#d68b5f"/>
+  <text x="535" y="225" class="name">SafetyPreFilter</text><text x="535" y="255" class="desc">deterministic hazard gate</text>
+  <path class="arrow" d="M660 232 H745"/>
+
+  <rect class="box" x="750" y="165" width="310" height="135" fill="#dff1e9" stroke="#3e8b78"/>
+  <text x="905" y="217" class="name">SupervisorAgent</text><text x="905" y="249" class="desc">LLMod reasoning + tool loop</text><text x="905" y="276" class="desc">maximum 6 iterations</text>
+  <path class="arrow" d="M535 180 C680 115 1160 115 1320 165"/>
+
+  <rect class="box" x="1265" y="165" width="270" height="120" fill="#ffe8e5" stroke="#c85f55"/>
+  <text x="1400" y="213" class="name">EmergencyResponseAgent</text><text x="1400" y="246" class="desc">LLMod safety reply</text><text x="1400" y="270" class="desc">no scheduling</text>
+  <text x="1040" y="142" class="small">FORCE ESCALATE</text>
+
+  <text x="905" y="365" class="small">AGENT-SELECTED TOOLS</text>
+  <path class="arrow" d="M905 300 V395 H305 V425"/>
+  <path class="arrow" d="M905 395 H795 V425"/>
+  <path class="arrow" d="M905 395 H1285 V425"/>
+
+  <rect class="box" x="145" y="425" width="320" height="125" fill="#eef3ff" stroke="#7188bd"/>
+  <text x="305" y="473" class="name">TaxonomySearch</text><text x="305" y="506" class="desc">Supabase HPD taxonomy</text><text x="305" y="531" class="desc">classification + urgency</text>
+  <rect class="box" x="635" y="425" width="320" height="125" fill="#eef3ff" stroke="#7188bd"/>
+  <text x="795" y="473" class="name">GuidanceRetriever</text><text x="795" y="506" class="desc">Pinecone official-source RAG</text><text x="795" y="531" class="desc">citations + policy evidence</text>
+  <rect class="box" x="1125" y="425" width="320" height="125" fill="#eef3ff" stroke="#7188bd"/>
+  <text x="1285" y="473" class="name">SchedulingTools</text><text x="1285" y="506" class="desc">approved vendors + slots</text><text x="1285" y="531" class="desc">explicit-choice booking guard</text>
+
+  <path class="arrow" d="M305 550 V650 H685"/><path class="arrow" d="M795 550 V650"/><path class="arrow" d="M1285 550 V650 H905"/>
+  <rect class="box" x="625" y="620" width="340" height="125" fill="#fff6d8" stroke="#bb9730"/>
+  <text x="795" y="668" class="name">SharedCaseState</text><text x="795" y="701" class="desc">one evolving work order</text><text x="795" y="726" class="desc">every tool reads and writes it</text>
+  <path class="arrow" d="M625 682 H430"/>
+  <rect class="box" x="105" y="620" width="325" height="125" fill="#eee9f8" stroke="#7d68aa"/>
+  <text x="267" y="668" class="name">SupabaseAuditStore</text><text x="267" y="701" class="desc">cases + messages</text><text x="267" y="726" class="desc">ordered LLM call events</text>
+
+  <path class="arrow" d="M795 745 V825"/><path class="arrow" d="M1400 285 V785 C1400 825 1270 850 1160 850"/>
+  <rect class="box" x="535" y="825" width="625" height="110" fill="#173b35" stroke="#173b35"/>
+  <text x="847" y="871" style="font:700 25px Arial,sans-serif;fill:#fff;text-anchor:middle">Response + LLM Steps</text>
+  <text x="847" y="906" style="font:18px Arial,sans-serif;fill:#d7e6e1;text-anchor:middle">tenant-facing answer and every model prompt/response in order</text>
+</svg>

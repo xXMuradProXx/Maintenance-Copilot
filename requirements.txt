@@ -3,3 +3,5 @@ uvicorn>=0.30
 openai>=1.40,<2
 pinecone>=5.0,<8
 python-dotenv>=1.0
+supabase>=2,<3
+pypdf>=5,<7

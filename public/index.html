@@ -115,12 +115,14 @@
   .tracecard h2{font-family:var(--display);font-weight:650;font-size:1rem;color:#f4f0e6;margin-bottom:4px}
   .tracecard p.hint{font-size:.76rem;color:#8fa0b0;margin-bottom:12px}
   .trace{list-style:none;display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:.74rem;line-height:1.45}
-  .trace li{display:grid;grid-template-columns:26px 132px 1fr;gap:8px;align-items:baseline;animation:rise .25s ease both}
+  .trace li{display:block;border-top:1px solid #344b5d;padding-top:8px;animation:rise .25s ease both}
   .trace .n{color:#5f7183}
   .trace .actor{color:#8fd3c5;overflow-wrap:anywhere}
   .trace li[data-a^="safety"] .actor{color:#f2a196}
   .trace li[data-a="supervisor"] .actor{color:#e9c46a}
   .trace .d{color:#c6d0da;overflow-wrap:anywhere}
+  .trace summary{cursor:pointer;color:#8fd3c5;margin-bottom:6px}
+  .trace pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#c6d0da;font:inherit;max-height:360px;overflow:auto}
   .trace-empty{color:#8fa0b0;font-size:.8rem;font-family:var(--body)}
 
   footer{padding:10px 22px 16px;text-align:center;font-size:.72rem;color:var(--muted)}
@@ -135,7 +137,7 @@
     <div class="sub">tenant request → work order → next state</div>
   </div>
   <div class="spacer"></div>
-  <span class="case-chip" id="caseChip">no open case</span>
+  <span class="case-chip" id="caseChip">assignment API</span>
   <button class="btn-ghost" id="resetBtn" type="button">New case</button>
 </header>
 
@@ -154,46 +156,18 @@
     </div>
 
     <div class="composer">
-      <div class="channels" id="channels" role="group" aria-label="Message channel">
-        <button type="button" data-ch="portal" aria-pressed="true">Portal</button>
-        <button type="button" data-ch="whatsapp" aria-pressed="false">WhatsApp</button>
-        <button type="button" data-ch="sms" aria-pressed="false">SMS</button>
-        <button type="button" data-ch="email" aria-pressed="false">Email</button>
-      </div>
       <div class="inputrow">
         <textarea id="input" rows="1" placeholder="Type a tenant message… (Enter to send, Shift+Enter for a new line)" aria-label="Tenant message"></textarea>
-        <button class="send" id="sendBtn" type="button">Send</button>
+        <button class="send" id="sendBtn" type="button">Run Agent</button>
       </div>
     </div>
   </section>
 
   <!-- ============ ops rail ============ -->
   <aside class="rail" aria-label="Case operations">
-    <div class="ticket">
-      <div class="ticket-stub">
-        <h2>Work order</h2>
-        <span class="status-pill" id="statusPill" data-s="new">New</span>
-      </div>
-      <div class="ticket-body">
-        <span class="stamp" id="stamp" aria-hidden="true"></span>
-        <div class="fields">
-          <div class="field"><label>Case</label><div id="fCase">—</div></div>
-          <div class="field"><label>Unit</label><div id="fUnit">—</div></div>
-          <div class="field"><label>Category</label><div id="fCat">—</div></div>
-          <div class="field"><label>Problem code</label><div id="fCode">—</div></div>
-          <div class="field"><label>Urgency</label><div id="fUrg">—</div></div>
-          <div class="field"><label>Vendor trade</label><div id="fTrade">—</div></div>
-          <div class="field wide"><label>Summary</label><div id="fSummary">—</div></div>
-          <div class="field wide"><label>Missing info</label><div id="fMissing">—</div></div>
-        </div>
-        <div class="banner safety" id="safetyBanner" hidden></div>
-        <div class="banner appt" id="apptBanner" hidden></div>
-      </div>
-    </div>
-
     <div class="tracecard">
       <h2>Agent trace</h2>
-      <p class="hint">Every decision travels with the work order.</p>
+      <p class="hint">Every LLM call, including its complete prompt and response.</p>
       <ol class="trace" id="trace"><li class="trace-empty">No decisions yet — send a tenant message.</li></ol>
     </div>
   </aside>
@@ -203,9 +177,9 @@
 
 <script>
 "use strict";
-const API_URL = "/api/chat";
+const API_URL = "/api/execute";
 
-const state = { caseState: null, history: [], channel: "portal", busy: false };
+const state = { caseState: null, steps: [], busy: false };
 
 const $ = (id) => document.getElementById(id);
 const messagesEl = $("messages"), inputEl = $("input"), sendBtn = $("sendBtn");
@@ -290,7 +264,7 @@ function renderTicket() {
 function renderTrace() {
   const traceEl = $("trace");
   traceEl.innerHTML = "";
-  const entries = (state.caseState && state.caseState.trace) || [];
+  const entries = state.steps || [];
   if (!entries.length) {
     const li = document.createElement("li");
     li.className = "trace-empty";
@@ -298,15 +272,18 @@ function renderTrace() {
     traceEl.appendChild(li);
     return;
   }
-  for (const e of entries) {
+  entries.forEach((e, index) => {
     const li = document.createElement("li");
-    li.dataset.a = e.actor || "";
-    const n = document.createElement("span"); n.className = "n"; n.textContent = String(e.step).padStart(2, "0");
-    const a = document.createElement("span"); a.className = "actor"; a.textContent = (e.actor || "") + " · " + (e.action || "");
-    const d = document.createElement("span"); d.className = "d"; d.textContent = e.detail || "";
-    li.append(n, a, d);
+    const details = document.createElement("details");
+    details.open = index === entries.length - 1;
+    const summary = document.createElement("summary");
+    summary.textContent = String(index + 1).padStart(2, "0") + " · " + (e.module || "LLM call");
+    const body = document.createElement("pre");
+    body.textContent = JSON.stringify({ prompt: e.prompt, response: e.response }, null, 2);
+    details.append(summary, body);
+    li.append(details);
     traceEl.appendChild(li);
-  }
+  });
   traceEl.parentElement.scrollTop = traceEl.parentElement.scrollHeight;
 }
 
@@ -320,33 +297,24 @@ async function send() {
   autoGrow();
 
   addBubble("tenant", text);
-  state.history.push({ role: "user", content: text });
   showTyping();
 
   try {
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: text,
-        channel: state.channel,
-        history: state.history.slice(0, -1),   // server appends the current message itself
-        case_state: state.caseState,
-      }),
+      body: JSON.stringify({ prompt: text }),
     });
     let data = null;
     try { data = await res.json(); } catch (_) { /* non-JSON error body */ }
-    if (!res.ok) {
+    if (!res.ok || !data || data.status !== "ok") {
       const detail = data && (data.detail || data.error);
       throw new Error(detail || ("Request failed with status " + res.status));
     }
-    state.caseState = data.case_state;
-    state.history.push({ role: "assistant", content: data.reply });
-    addBubble("copilot", data.reply);
-    renderTicket();
+    state.steps = data.steps || [];
+    addBubble("copilot", data.response);
     renderTrace();
   } catch (err) {
-    state.history.pop();               // let the tenant resend the same message
     addBubble("error", "Couldn't reach the agent: " + err.message + " — check the server and your API keys, then try again.");
   } finally {
     hideTyping();
@@ -359,15 +327,8 @@ async function send() {
 /* ---------- reset ---------- */
 function resetCase() {
   state.caseState = null;
-  state.history = [];
+  state.steps = [];
   messagesEl.innerHTML = "";
-  $("caseChip").textContent = "no open case";
-  $("statusPill").dataset.s = "new";
-  $("statusPill").textContent = "New";
-  ["fCase","fUnit","fCat","fCode","fUrg","fTrade","fSummary","fMissing"].forEach((id) => setField(id, ""));
-  $("stamp").classList.remove("show");
-  $("safetyBanner").hidden = true;
-  $("apptBanner").hidden = true;
   renderTrace();
   greet();
 }
@@ -397,16 +358,8 @@ $("chips").addEventListener("click", (e) => {
   inputEl.focus();
 });
 
-$("channels").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-ch]");
-  if (!btn) return;
-  state.channel = btn.dataset.ch;
-  document.querySelectorAll("#channels button").forEach((b) =>
-    b.setAttribute("aria-pressed", String(b === btn)));
-});
-
 $("resetBtn").addEventListener("click", () => {
-  if (!state.history.length || confirm("Start a new case? The current conversation will be cleared.")) resetCase();
+  if (!state.steps.length || confirm("Start a new case? The current conversation will be cleared.")) resetCase();
 });
 
 greet();

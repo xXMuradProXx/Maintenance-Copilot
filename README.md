@@ -3,11 +3,15 @@
 Full-stack AI agent (course final project, *Introduction to Modern AI Agents*)
 that turns messy tenant messages ("no heat again since yesterday") into
 structured work orders: it classifies the issue against an HPD-style taxonomy,
-retrieves landlord obligations from a housing-guidance corpus (RAG), offers
-vendor appointment windows, books them, or escalates to the human manager —
-with an explicit safety pre-filter, autonomy policy, and loop guard.
+retrieves landlord obligations from an official housing-guidance corpus (RAG),
+and selects a safe next action using an explicit safety pre-filter, autonomy
+policy, and loop guard.
 
-**Stack:** OpenAI (chat + embeddings) · Pinecone (vector DB) · FastAPI (Python)
+The required `/api/execute` endpoint and root UI currently support one-shot
+triage. Vendor availability and notifications are still demo simulations; they
+must not be treated as real bookings or messages to a contractor or manager.
+
+**Stack:** LLMod/OpenAI-compatible API (chat + embeddings) · Pinecone (vector DB) · FastAPI (Python)
 · vanilla HTML/JS frontend · Vercel (serverless deployment).
 
 ## Project structure
@@ -16,22 +20,29 @@ with an explicit safety pre-filter, autonomy policy, and loop guard.
 maintenance-copilot/
 ├── api/
 │   ├── index.py            # FastAPI entrypoint (Vercel serverless function)
-│   └── _lib/               # underscore prefix = NOT deployed as functions
+│   └── lib/                # agent runtime and backend integrations
 │       ├── agent.py        # supervisor loop, tools, autonomy policy, loop guard
 │       ├── safety.py       # rule-based safety pre-filter (force-escalate/flag)
-│       ├── taxonomy.py     # HPD-style problem taxonomy (structured source)
-│       ├── vendors.py      # approved-vendor directory + calendar slots
-│       ├── rag.py          # OpenAI embeddings + Pinecone retrieval
+│       ├── taxonomy.py     # Supabase HPD taxonomy search
+│       ├── repositories.py # durable Supabase cases, messages, events, RAG manifest
+│       ├── vendors.py      # deterministic demo vendors + generated slots
+│       ├── rag.py          # LLMod embeddings + Pinecone retrieval
 │       └── state.py        # Shared Case State (work order + decision trace)
-├── data/housing_guidance/  # RAG corpus (10 markdown guidance docs)
-├── public/index.html       # frontend (chat + live work-order + agent trace)
-├── upload_data.py          # one-time ingestion: chunk → embed → Pinecone
+├── data/                   # official source documents + grouped HPD taxonomy
+├── instructions/           # course brief, earlier assignment, and presentation
+├── public/index.html       # assignment UI (response + complete LLM trace)
+├── public/model-architecture.png
+├── scripts/                # data loaders and connection/retrieval checks
+├── supabase/migrations/    # database schema
+├── tests/                  # offline API-contract and LLM-trace tests
+├── AGENTS.md               # repository rules for future coding agents
+├── TODO.md                 # prioritized remaining-work checklist
 ├── requirements.txt
-├── vercel.json             # rewrites /api/* to api/index.py, 60s max duration
+├── vercel.json             # rewrites /api/* to api/index.py, 300s max duration
 └── .env.example
 ```
 
-## 1. Run locally (PyCharm)
+## 1. Run locally
 
 ```bash
 # in the project root
@@ -39,9 +50,7 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate     macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env        # then paste your real OPENAI_API_KEY + PINECONE_API_KEY
-
-python upload_data.py       # one-time: builds the Pinecone index from data/
+cp .env.example .env        # then paste your LLMod, Pinecone, and Supabase credentials
 
 uvicorn api.index:app --reload
 ```
@@ -55,20 +64,52 @@ Open http://127.0.0.1:8000 — the frontend, API and interactive docs
    it's in `.gitignore`).
 2. On https://vercel.com → **Add New… → Project** → import the repo. Framework
    preset: **Other**. No build command needed.
-3. In **Settings → Environment Variables**, add `OPENAI_API_KEY` and
-   `PINECONE_API_KEY` (and optionally `PINECONE_INDEX`, `OPENAI_MODEL`).
+3. In **Settings → Environment Variables**, add the same LLMod, Pinecone,
+   Supabase, and model variables used in `.env`.
 4. Deploy. Your agent is live at `https://<project>.vercel.app` for anyone with
    the link. `public/` is served statically; `/api/*` hits the Python function.
 
-Note: `upload_data.py` runs **on your machine**, not on Vercel — the deployed
-function only *queries* the Pinecone index you built locally.
+## 3. Assignment API
 
-## 3. Try these demo messages
+The four required endpoints are:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/team_info` | Team details |
+| `GET` | `/api/agent_info` | Agent description, usage, examples and modules |
+| `GET` | `/api/model_architecture` | Architecture diagram as `image/png` |
+| `POST` | `/api/execute` | Run one prompt and return `status`, `error`, `response`, and every LLM call in `steps` |
+
+Example:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/execute `
+  -ContentType 'application/json' `
+  -Body '{"prompt":"The kitchen sink is clogged in apartment 4B."}'
+```
+
+Each successful execution is saved to Supabase as a case with user/assistant
+messages and ordered `llm_call` events. The older `/api/chat` endpoint remains
+available for stateful-client experiments, but the required root UI uses
+stateless `/api/execute` calls.
+
+Run the offline assignment-contract suite without calling LLMod, Pinecone, or
+Supabase:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+The suite is offline: it mocks provider/database boundaries and verifies the
+four required endpoints, exact `/api/execute` response shape, prompt-template
+shape, ordered LLM traces, architecture-module consistency, PNG delivery, and
+the Vercel-style Python entrypoint.
+
+## 4. Try these demo messages
 
 | Message | Expected agent behavior |
 |---|---|
-| "The kitchen sink is clogged and water drains very slowly. Apt 4B." | ROUTINE plumbing → offers two plumber windows |
-| "1" / "the first one works" | Books the chosen slot → status **Scheduled** |
+| "The kitchen sink is clogged and water drains very slowly. Apt 4B." | Uses the official HPD plumbing classification and mapped urgency |
 | "No heat again since yesterday, apartment 12C" | Safety flag + RAG heat-season rules → EMERGENCY → **Escalated** |
 | "I smell gas in my kitchen!!" | Force-escalate: bypasses the LLM loop, immediate 911/utility safety steps |
 | "bathroom problem" | Missing facts → asks 1–2 questions → **Waiting for tenant info** |
@@ -77,8 +118,60 @@ function only *queries* the Pinecone index you built locally.
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | — | required |
+| `LLMOD_BASE_URL` | — | required LLMod OpenAI-compatible endpoint |
+| `LLMOD_API_KEY` | — | required shared LLMod key |
+| `LLMOD_TIMEOUT_SECONDS` | `45` | per-request timeout |
+| `LLMOD_MAX_RETRIES` | `2` | SDK retry count |
+| `SUPABASE_URL` | — | required project URL for taxonomy, cases, audit events, and scheduling |
+| `SUPABASE_SECRET_KEY` | — | required backend-only secret key; never expose it to the browser |
 | `PINECONE_API_KEY` | — | required (RAG degrades gracefully without it) |
 | `PINECONE_INDEX` | `maintenance-copilot` | index name |
-| `OPENAI_MODEL` | `gpt-4o-mini` | supervisor model |
-| `EMBED_MODEL` | `text-embedding-3-small` | 1536-dim embeddings |
+| `LLMOD_MODEL` | `MB5R2CF-azure/gpt-5.4-mini` | supervisor model through LLMod |
+| `EMBED_MODEL` | `MB5R2CF-azure/text-embedding-3-small` | 1536-dim embeddings through LLMod |
+
+`LLMOD_API_KEY` is the only supported LLM credential variable.
+
+Verify the provider before running the app:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_llmod.py
+.\.venv\Scripts\python.exe scripts\check_agent_loop.py
+```
+
+## Official PDF ingestion
+
+The RAG corpus consists only of the three official PDFs in `data/`. Validate
+page extraction and chunking locally first; this makes no service calls:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\load_official_sources.py --dry-run
+```
+
+To deliberately embed all chunks through LLMod and synchronize Pinecone plus
+the Supabase `rag_documents`/`rag_chunks` manifests:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\load_official_sources.py --upload
+```
+
+The upload is idempotent and uses the namespace configured by
+`PINECONE_NAMESPACE`. Unchanged chunks are not embedded again; use `--force`
+only when you intentionally need to rebuild every vector. After upload, run
+the live retrieval check explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_rag.py --live
+```
+
+## Current limitations
+
+- The public assignment flow is one prompt per `/api/execute` call; it does not
+  yet preserve a case across follow-up prompts.
+- `api/lib/vendors.py` returns deterministic demonstration vendors and time
+  windows. It does not reserve Supabase slots or contact anyone.
+- Supabase is required for a successful `/api/execute`; Pinecone retrieval can
+  degrade gracefully when unavailable.
+- The portal is the delivered channel. WhatsApp, SMS, and email are conceptual
+  channels from the project presentation, not current integrations.
+
+See `TODO.md` for the prioritized path from this baseline to submission.

@@ -4,25 +4,37 @@ Runs both locally (uvicorn api.index:app) and as a Vercel serverless function
 (vercel.json rewrites /api/* to this file; Vercel auto-detects the ASGI `app`).
 """
 
+import json
 import os
 import sys
 
-# Make `api/_lib` importable both locally and inside Vercel's function bundle.
+# Make `api/lib` importable both locally and inside Vercel's function bundle.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
 
 load_dotenv()  # local dev convenience; on Vercel, env vars come from the dashboard
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from _lib.agent import run_case
-from _lib.state import CaseState
+from lib.agent import (
+	EMERGENCY_PROMPT,
+	LLM_MODULES,
+	MODEL,
+	PUBLIC_MODULES,
+	SYSTEM_PROMPT,
+	run_case,
+)
+from lib.llm_client import is_llmod_configured, llmod_public_status
+from lib.repositories import CaseRepository
+from lib.state import CaseState
+from lib.supabase_client import check_supabase_connection
 
 app = FastAPI(
 	title="Maintenance Copilot API",
@@ -54,12 +66,114 @@ class ChatResponse(BaseModel):
 	case_state: Dict[str, Any]
 
 
+class ExecuteRequest(BaseModel):
+	prompt: str = Field(..., min_length=1, max_length=4000)
+
+	@field_validator("prompt")
+	@classmethod
+	def prompt_must_not_be_blank(cls, value: str) -> str:
+		value = value.strip()
+		if not value:
+			raise ValueError("Prompt must contain non-whitespace text.")
+		return value
+
+
+class ExecutionPrompt(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	system_prompt: str
+	user_prompt: str
+
+
+class ExecutionStep(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	module: str
+	prompt: ExecutionPrompt
+	response: Dict[str, Any]
+
+	@field_validator("module")
+	@classmethod
+	def module_matches_architecture(cls, value: str) -> str:
+		if value not in LLM_MODULES:
+			raise ValueError(
+				"LLM step module must match the architecture: "
+				+ ", ".join(LLM_MODULES)
+			)
+		return value
+
+
+class ExecuteResponse(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	status: Literal["ok", "error"]
+	error: Optional[str]
+	response: Optional[str]
+	steps: List[ExecutionStep]
+
+
+class StudentInfo(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	name: str
+	email: str
+
+
+class TeamInfoResponse(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	group_batch_order_number: str
+	team_name: str
+	students: List[StudentInfo]
+
+
+class PromptTemplateInfo(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	template: str
+	example: Optional[str] = None
+
+
+class PromptExample(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	prompt: str
+	full_response: str
+	steps: List[ExecutionStep]
+
+
+class AgentInfoResponse(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	description: str
+	purpose: str
+	prompt_template: PromptTemplateInfo
+	prompt_examples: List[PromptExample]
+	model: str
+	modules: List[str]
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+	if request.url.path.rstrip("/").endswith("/execute"):
+		message = "; ".join(
+			str(item.get("msg", "Invalid request")) for item in exc.errors()
+		)
+		return JSONResponse(
+			status_code=422,
+			content={
+				"status": "error", "error": message,
+				"response": None, "steps": [],
+			},
+		)
+	return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
 def _handle_chat(req: ChatRequest) -> ChatResponse:
-	if not os.getenv("OPENAI_API_KEY"):
+	if not is_llmod_configured():
 		raise HTTPException(
 			status_code=500,
-			detail="OPENAI_API_KEY is not set. Add it to .env (local) or to the "
-			       "Vercel project's Environment Variables.",
+			detail="LLMod is not configured. Set LLMOD_BASE_URL and LLMOD_API_KEY.",
 		)
 
 	# Rebuild the shared case state from the client; start fresh if it's malformed.
@@ -89,15 +203,233 @@ def chat(req: ChatRequest) -> ChatResponse:
 	return _handle_chat(req)
 
 
+def _persist_completed_execution(
+	repository: CaseRepository,
+	database_case_id: str,
+	case: CaseState,
+	reply: str,
+) -> None:
+	"""Write the final case, response, and ordered LLM calls to Supabase."""
+	repository.update_case(
+		database_case_id,
+		{
+			**case.snapshot(),
+			"citations": case.citations,
+			"current_response": reply,
+			"metadata": {
+				"source_endpoint": "/api/execute",
+				"decision_trace": case.trace,
+				"llm_step_count": len(case.llm_steps),
+			},
+		},
+	)
+	repository.append_message(database_case_id, "assistant", reply)
+	for step in case.llm_steps:
+		model_response = step.get("response") or {}
+		repository.append_event(
+			database_case_id,
+			step["module"],
+			"llm_call",
+			prompt=step.get("prompt"),
+			response=model_response,
+			model=model_response.get("model"),
+			token_usage=model_response.get("token_usage"),
+		)
+
+
+def _execute_agent(req: ExecuteRequest) -> ExecuteResponse:
+	case = CaseState(channel="portal")
+	if not is_llmod_configured():
+		return ExecuteResponse(
+			status="error",
+			error="LLMod is not configured. Set LLMOD_BASE_URL and LLMOD_API_KEY.",
+			response=None,
+			steps=[],
+		)
+
+	try:
+		repository = CaseRepository()
+		database_case = repository.create_case(
+			{"channel": "portal", "metadata": {"source_endpoint": "/api/execute"}}
+		)
+		case.case_id = database_case["public_id"]
+		repository.append_message(database_case["id"], "user", req.prompt.strip())
+		reply, case = run_case(req.prompt.strip(), [], case)
+		_persist_completed_execution(repository, database_case["id"], case, reply)
+		return ExecuteResponse(
+			status="ok", error=None, response=reply, steps=case.llm_steps
+		)
+	except Exception as exc:  # noqa: BLE001 - contract requires a structured error
+		return ExecuteResponse(
+			status="error",
+			error=f"Execution failed: {type(exc).__name__}: {exc}",
+			response=None,
+			steps=case.llm_steps,
+		)
+
+
+@app.post("/api/execute", response_model=ExecuteResponse)
+@app.post("/execute", response_model=ExecuteResponse)
+def execute(req: ExecuteRequest) -> ExecuteResponse:
+	"""Assignment entrypoint: one prompt in, final response plus all LLM calls out."""
+	return _execute_agent(req)
+
+
+@app.get("/api/team_info", response_model=TeamInfoResponse)
+@app.get("/team_info", response_model=TeamInfoResponse)
+def team_info() -> TeamInfoResponse:
+	return TeamInfoResponse.model_validate({
+		"group_batch_order_number": "1_4",
+		"team_name": "Murad Aviv",
+		"students": [
+			{"name": "Aviv Fedida", "email": "aviv.fedida@campus.technion.ac.il"},
+			{"name": "Murad Rahimli", "email": "muradrahimli@campus.technion.ac.il"},
+		],
+	})
+
+
+@app.get("/api/agent_info", response_model=AgentInfoResponse)
+@app.get("/agent_info", response_model=AgentInfoResponse)
+def agent_info() -> AgentInfoResponse:
+	emergency_message = "I smell gas in my kitchen in apartment 4B."
+	emergency_system = EMERGENCY_PROMPT.format(
+		reason="Possible gas leak reported",
+		guidance=(
+			"Please leave the apartment now. Do not touch light switches, appliances, "
+			"or anything that can spark, and do not light flames. Once outside, call "
+			"911 and your gas utility's 24-hour emergency line."
+		),
+		unit="4B",
+		citations="none available",
+	)
+	example_context = (
+		"Today is an example date. Message channel: portal.\n"
+		"SAFETY PRE-FILTER: none\n"
+		"CURRENT SHARED CASE STATE (JSON): {\"status\":\"new\",\"channel\":\"portal\"}"
+	)
+	example_system = SYSTEM_PROMPT + "\n\n" + example_context
+	vague_message = "Something is wrong in my bathroom."
+	vague_first_prompt = json.dumps(
+		[{"role": "user", "content": vague_message}], ensure_ascii=False
+	)
+	vague_second_prompt = json.dumps(
+		[
+			{"role": "user", "content": vague_message},
+			{
+				"role": "assistant", "content": "",
+				"tool_calls": [{
+					"id": "example_call_1", "type": "function",
+					"function": {
+						"name": "ask_tenant",
+						"arguments": "{\"missing_fields\":[\"problem details\",\"unit\"]}",
+					},
+				}],
+			},
+			{
+				"role": "tool", "tool_call_id": "example_call_1",
+				"content": "{\"ok\":true,\"status\":\"needs_info\"}",
+			},
+		],
+		ensure_ascii=False,
+	)
+	return AgentInfoResponse.model_validate({
+		"description": (
+			"Maintenance Copilot is a supervisor-style AI agent for tenant "
+			"maintenance requests. It uses a safety pre-filter, an HPD complaint "
+			"taxonomy, official-source retrieval, scheduling tools, shared case "
+			"state, and a guarded multi-step tool loop. It does not replace "
+			"emergency services or make unsupported legal claims."
+		),
+		"purpose": (
+			"Turn an unstructured tenant report into a grounded work order and "
+			"one safe next state: ask for information, offer a vendor window, "
+			"book an explicitly selected window, escalate, or resolve."
+		),
+		"prompt_template": {
+			"template": (
+				"Apartment/unit: <unit number>\n"
+				"Location: <room or building area>\n"
+				"Problem: <what is happening>\n"
+				"Started: <when it began>\n"
+				"Immediate danger: <gas, smoke, sparks, flooding, injury risk, or none>"
+			),
+			"example": (
+				"Apartment/unit: 4B\n"
+				"Location: kitchen sink\n"
+				"Problem: clogged and draining very slowly\n"
+				"Started: yesterday evening\n"
+				"Immediate danger: none"
+			),
+		},
+		"prompt_examples": [
+			{
+				"prompt": emergency_message,
+				"full_response": (
+					"Please leave the apartment now without touching light switches, "
+					"appliances, or anything that could spark, and do not light a flame. "
+					"Once you are outside, call 911 and your gas utility's 24-hour "
+					"emergency line. The property manager has been alerted, and this is "
+					"being handled as an emergency."
+				),
+				"steps": [{
+					"module": "EmergencyResponseAgent",
+					"prompt": {
+						"system_prompt": emergency_system,
+						"user_prompt": json.dumps(
+							[{"role": "user", "content": emergency_message}],
+							ensure_ascii=False,
+						),
+					},
+					"response": {
+						"model": MODEL,
+						"content": "Please leave the apartment now without touching light switches, appliances, or anything that could spark, and do not light a flame. Once you are outside, call 911 and your gas utility's 24-hour emergency line. The property manager has been alerted, and this is being handled as an emergency.",
+						"tool_calls": [],
+					},
+				}],
+			},
+			{
+				"prompt": "Something is wrong in my bathroom.",
+				"full_response": (
+					"I can help open the right work order. What exactly is happening in "
+					"the bathroom, and what is your apartment number?"
+				),
+				"steps": [
+					{
+						"module": "SupervisorAgent",
+						"prompt": {
+							"system_prompt": example_system,
+							"user_prompt": vague_first_prompt,
+						},
+						"response": {"content": "", "tool_calls": [{"name": "ask_tenant", "arguments": "{\"missing_fields\":[\"problem details\",\"unit\"]}"}]},
+					},
+					{
+						"module": "SupervisorAgent",
+						"prompt": {
+							"system_prompt": example_system,
+							"user_prompt": vague_second_prompt,
+						},
+						"response": {"content": "I can help open the right work order. What exactly is happening in the bathroom, and what is your apartment number?", "tool_calls": []},
+					},
+				],
+			},
+		],
+		"model": MODEL,
+		"modules": list(PUBLIC_MODULES),
+	})
+
+
 @app.get("/api/health")
 @app.get("/health")
 def health() -> Dict[str, Any]:
+	database_status = check_supabase_connection()
 	return {
 		"status": "ok",
-		"model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-		"openai_key_present": bool(os.getenv("OPENAI_API_KEY")),
+		"model": os.getenv("LLMOD_MODEL", "MB5R2CF-azure/gpt-5.4-mini"),
+		"llmod": llmod_public_status(),
 		"pinecone_key_present": bool(os.getenv("PINECONE_API_KEY")),
 		"pinecone_index": os.getenv("PINECONE_INDEX", "maintenance-copilot"),
+		"pinecone_namespace": os.getenv("PINECONE_NAMESPACE", "official-housing-v1"),
+		"supabase": database_status,
 	}
 
 
@@ -106,6 +438,21 @@ def health() -> Dict[str, Any]:
 _INDEX_HTML = os.path.join(
 	os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public", "index.html"
 )
+_ARCHITECTURE_PNG = os.path.join(
+	os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+	"public", "model-architecture.png",
+)
+
+
+@app.get("/api/model_architecture")
+@app.get("/model_architecture")
+def model_architecture():
+	if not os.path.exists(_ARCHITECTURE_PNG):
+		return JSONResponse(
+			status_code=500,
+			content={"error": "Model architecture image is unavailable."},
+		)
+	return FileResponse(_ARCHITECTURE_PNG, media_type="image/png")
 
 
 @app.get("/")

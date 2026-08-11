@@ -62,6 +62,10 @@ class CaseState(BaseModel):
     # Decision trace ("Evidence travels with the work order")
     trace: List[Dict[str, Any]] = Field(default_factory=list)
 
+    # Assignment-facing audit trail. Unlike ``trace`` (the compact operational
+    # log), this contains the complete prompt and response for every LLM call.
+    llm_steps: List[Dict[str, Any]] = Field(default_factory=list)
+
     model_config = {"extra": "ignore"}  # be forgiving about stale client payloads
 
     # ------------------------------------------------------------------ helpers
@@ -81,7 +85,7 @@ class CaseState(BaseModel):
 
     def snapshot(self) -> Dict[str, Any]:
         """Compact view of the case for the supervisor's context window."""
-        data = self.model_dump(exclude={"trace", "citations"})
+        data = self.model_dump(exclude={"trace", "llm_steps", "citations"})
         return {k: v for k, v in data.items() if v not in (None, "", [], {})}
 
     def is_terminal(self) -> bool:

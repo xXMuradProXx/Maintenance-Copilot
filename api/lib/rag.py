@@ -1,7 +1,7 @@
 """Retrieval layer (RAG sub-agent tool).
 
-Embeds the query with OpenAI and searches the Pinecone index built by
-`upload_data.py` (housing code + HPD-style guidance corpus).
+Embeds the query through LLMod's OpenAI-compatible API and searches the
+Pinecone index reserved for the official housing-source corpus.
 
 Degrades gracefully: if Pinecone is unreachable / not configured / empty, the
 tool reports that instead of crashing, and the supervisor falls back to the
@@ -11,19 +11,22 @@ structured taxonomy + explicit policy in its prompt.
 import os
 from typing import Any, Dict, List
 
-from openai import OpenAI
+from .llm_client import get_llmod_client
 
-EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-small")  # 1536 dims
+EMBED_MODEL = os.getenv(
+    "EMBED_MODEL", "MB5R2CF-azure/text-embedding-3-small"
+)  # 1536 dims
 INDEX_NAME = os.getenv("PINECONE_INDEX", "maintenance-copilot")
+NAMESPACE = os.getenv("PINECONE_NAMESPACE", "official-housing-v1")
 
 _openai_client = None
 _pinecone_index = None
 
 
-def _get_openai() -> OpenAI:
+def _get_openai():
     global _openai_client
     if _openai_client is None:
-        _openai_client = OpenAI()  # reads OPENAI_API_KEY
+        _openai_client = get_llmod_client()
     return _openai_client
 
 
@@ -60,7 +63,10 @@ def retrieve(query: str, top_k: int = 4) -> Dict[str, Any]:
             .embedding
         )
         response = _get_index().query(
-            vector=embedding, top_k=top_k, include_metadata=True
+            vector=embedding,
+            top_k=top_k,
+            include_metadata=True,
+            namespace=NAMESPACE,
         )
         matches = _match_field(response, "matches", []) or []
 
@@ -72,13 +78,16 @@ def retrieve(query: str, top_k: int = 4) -> Dict[str, Any]:
                     "title": str(metadata.get("title", "untitled")),
                     "text": str(metadata.get("text", ""))[:700],
                     "score": round(float(_match_field(m, "score", 0.0)), 3),
+                    "source": str(metadata.get("source_name", "")),
+                    "file_name": str(metadata.get("file_name", "")),
+                    "page": int(metadata.get("page_start", 0) or 0),
+                    "section": str(metadata.get("section", "")),
                 }
             )
         if not results:
             return {
                 "ok": False,
-                "error": "No guidance found for this query (index may be empty — "
-                         "run upload_data.py).",
+                "error": "No official housing guidance has been indexed for this query.",
                 "results": [],
             }
         return {"ok": True, "results": results}

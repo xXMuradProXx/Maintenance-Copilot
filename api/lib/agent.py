@@ -19,10 +19,9 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
-from openai import OpenAI
-
-from _lib import rag, safety, taxonomy, vendors
-from _lib.state import (
+from lib import rag, safety, taxonomy, vendors
+from lib.llm_client import get_llmod_client
+from lib.state import (
     STATUS_AWAITING_TENANT,
     STATUS_ESCALATED,
     STATUS_NEEDS_INFO,
@@ -31,17 +30,31 @@ from _lib.state import (
     CaseState,
 )
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.getenv("LLMOD_MODEL", "MB5R2CF-azure/gpt-5.4-mini")
 MAX_STEPS = 6          # supervisor loop budget (loop guard)
 MAX_HISTORY = 12       # prior chat turns forwarded to the model
+
+SUPERVISOR_MODULE = "SupervisorAgent"
+EMERGENCY_RESPONSE_MODULE = "EmergencyResponseAgent"
+LLM_MODULES = (SUPERVISOR_MODULE, EMERGENCY_RESPONSE_MODULE)
+PUBLIC_MODULES = (
+    "SafetyPreFilter",
+    SUPERVISOR_MODULE,
+    EMERGENCY_RESPONSE_MODULE,
+    "TaxonomySearch",
+    "GuidanceRetriever",
+    "SchedulingTools",
+    "SharedCaseState",
+    "SupabaseAuditStore",
+)
 
 _client = None
 
 
-def _get_client() -> OpenAI:
+def _get_client():
     global _client
     if _client is None:
-        _client = OpenAI()
+        _client = get_llmod_client()
     return _client
 
 
@@ -103,8 +116,9 @@ TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "classify_issue",
-            "description": "Search the HPD-style problem taxonomy with the tenant's own words. "
-                           "Returns candidate rows with category, problem code, urgency label and vendor trade.",
+            "description": "Search the 641-row HPD problem taxonomy in Supabase with the tenant's own words. "
+                           "Returns official candidate rows, mapped HPD urgency, historical frequency, "
+                           "source provenance, and inferred vendor trade.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -138,7 +152,7 @@ TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "retrieve_guidance",
-            "description": "Semantic search (RAG) over the housing code + HPD-style guidance corpus: heat/hot water rules, hazard classes and repair timeframes, leaks, mold, pests, electrical and gas safety, locks/security, communication playbook.",
+            "description": "Semantic search over the official housing-code and HPD-source corpus. Returns source-grounded passages when that corpus has been indexed in Pinecone.",
             "parameters": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
@@ -232,7 +246,16 @@ def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str
     if name == "retrieve_guidance":
         result = rag.retrieve(args.get("query", ""))
         for r in result.get("results", []):
-            case.citations.append({"title": r["title"], "score": r["score"]})
+            case.citations.append(
+                {
+                    "title": r["title"],
+                    "source": r.get("source"),
+                    "file_name": r.get("file_name"),
+                    "page": r.get("page"),
+                    "section": r.get("section"),
+                    "score": r["score"],
+                }
+            )
         case.citations = case.citations[-8:]
         return result
 
@@ -304,6 +327,85 @@ def _clean_history(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return cleaned[-MAX_HISTORY:]
 
 
+def _trace_prompt(messages: List[Dict[str, Any]]) -> Dict[str, str]:
+    """Represent the complete OpenAI-style message list in the required schema."""
+    system_parts = [
+        str(item.get("content", ""))
+        for item in messages
+        if item.get("role") == "system"
+    ]
+    conversation = [item for item in messages if item.get("role") != "system"]
+    return {
+        "system_prompt": "\n\n".join(system_parts),
+        # Later agent iterations include assistant tool calls and tool results;
+        # JSON preserves that complete context while retaining the required
+        # user_prompt string field.
+        "user_prompt": json.dumps(conversation, ensure_ascii=False),
+    }
+
+
+def _trace_response(response: Any) -> Dict[str, Any]:
+    """Convert an SDK response into JSON-safe audit data."""
+    choice = response.choices[0].message
+    tool_calls = []
+    for call in choice.tool_calls or []:
+        tool_calls.append(
+            {
+                "id": call.id,
+                "name": call.function.name,
+                "arguments": call.function.arguments,
+            }
+        )
+    usage = getattr(response, "usage", None)
+    return {
+        "model": getattr(response, "model", MODEL),
+        "content": choice.content or "",
+        "tool_calls": tool_calls,
+        "token_usage": {
+            "input_tokens": getattr(usage, "prompt_tokens", None),
+            "output_tokens": getattr(usage, "completion_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        },
+    }
+
+
+def _call_llm(
+    case: CaseState,
+    module: str,
+    messages: List[Dict[str, Any]],
+    **kwargs: Any,
+) -> Any:
+    """Make one model call and record it, including failures, exactly once."""
+    if module not in LLM_MODULES:
+        raise ValueError(
+            f"Unknown LLM module '{module}'. Expected one of: "
+            + ", ".join(LLM_MODULES)
+        )
+    prompt = _trace_prompt(messages)
+    try:
+        response = _get_client().chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            **kwargs,
+        )
+    except Exception as exc:
+        case.llm_steps.append(
+            {
+                "module": module,
+                "prompt": prompt,
+                "response": {
+                    "model": MODEL,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            }
+        )
+        raise
+    case.llm_steps.append(
+        {"module": module, "prompt": prompt, "response": _trace_response(response)}
+    )
+    return response
+
+
 def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tuple[str, CaseState]:
     """Process one tenant message through the full pipeline. Returns (reply, case)."""
 
@@ -327,16 +429,15 @@ def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tu
         {"role": "user", "content": message},
     ]
 
-    client = _get_client()
     reply: str = ""
 
     for _step in range(MAX_STEPS):
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
+        response = _call_llm(
+            case,
+            SUPERVISOR_MODULE,
+            messages,
             tools=TOOLS,
             tool_choice="auto",
-            temperature=0.2,
         )
         choice = response.choices[0].message
 
@@ -416,8 +517,18 @@ def _emergency_path(message: str, case: CaseState, safety_result: Dict[str, Any]
     retrieval = rag.retrieve(safety_result["reason"])
     snippets = ""
     for r in retrieval.get("results", [])[:2]:
-        case.citations.append({"title": r["title"], "score": r["score"]})
-        snippets += f"- [{r['title']}] {r['text'][:300]}\n"
+        case.citations.append(
+            {
+                "title": r["title"],
+                "source": r.get("source"),
+                "file_name": r.get("file_name"),
+                "page": r.get("page"),
+                "section": r.get("section"),
+                "score": r["score"],
+            }
+        )
+        page_note = f", page {r.get('page')}" if r.get("page") else ""
+        snippets += f"- [{r['title']}{page_note}] {r['text'][:300]}\n"
     if retrieval.get("results"):
         case.add_trace("tool:retrieve_guidance", "observe",
                        "; ".join(r["title"] for r in retrieval["results"][:3]))
@@ -429,10 +540,7 @@ def _emergency_path(message: str, case: CaseState, safety_result: Dict[str, Any]
     )
 
     try:
-        response = _get_client().chat.completions.create(
-            model=MODEL,
-            temperature=0.2,
-            messages=[
+        messages = [
                 {
                     "role": "system",
                     "content": EMERGENCY_PROMPT.format(
@@ -443,7 +551,11 @@ def _emergency_path(message: str, case: CaseState, safety_result: Dict[str, Any]
                     ),
                 },
                 {"role": "user", "content": message},
-            ],
+            ]
+        response = _call_llm(
+            case,
+            EMERGENCY_RESPONSE_MODULE,
+            messages,
         )
         reply = (response.choices[0].message.content or "").strip() or fallback_reply
     except Exception:  # noqa: BLE001 — safety reply must always go out
