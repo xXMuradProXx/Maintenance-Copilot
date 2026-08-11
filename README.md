@@ -29,7 +29,7 @@ maintenance-copilot/
 │       ├── rag.py          # LLMod embeddings + Pinecone retrieval
 │       └── state.py        # Shared Case State (work order + decision trace)
 ├── data/                   # official source documents + grouped HPD taxonomy
-├── instructions/           # course brief, earlier assignment, and presentation
+├── instructions/           # project instructions
 ├── public/index.html       # assignment UI (response + complete LLM trace)
 ├── public/model-architecture.png
 ├── scripts/                # data loaders and connection/retrieval checks
