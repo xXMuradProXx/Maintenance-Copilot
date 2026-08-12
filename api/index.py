@@ -336,14 +336,14 @@ def agent_info() -> AgentInfoResponse:
 		"description": (
 			"Maintenance Copilot is a supervisor-style AI agent for tenant "
 			"maintenance requests. It uses a safety pre-filter, an HPD complaint "
-			"taxonomy, official-source retrieval, scheduling tools, shared case "
+			"taxonomy, official-source retrieval, simulated scheduling tools, shared case "
 			"state, and a guarded multi-step tool loop. It does not replace "
 			"emergency services or make unsupported legal claims."
 		),
 		"purpose": (
 			"Turn an unstructured tenant report into a grounded work order and "
-			"one safe next state: ask for information, offer a vendor window, "
-			"book an explicitly selected window, escalate, or resolve."
+			"one safe next state: ask for information, offer a simulated vendor "
+			"window, record an explicitly selected demo window, mark for review, or resolve."
 		),
 		"prompt_template": {
 			"template": (
@@ -368,8 +368,8 @@ def agent_info() -> AgentInfoResponse:
 					"Please leave the apartment now without touching light switches, "
 					"appliances, or anything that could spark, and do not light a flame. "
 					"Once you are outside, call 911 and your gas utility's 24-hour "
-					"emergency line. The property manager has been alerted, and this is "
-					"being handled as an emergency."
+					"emergency line. This case is marked for urgent manager review, but "
+					"this demo does not send notifications, so contact building management directly."
 				),
 				"steps": [{
 					"module": "EmergencyResponseAgent",
@@ -382,7 +382,7 @@ def agent_info() -> AgentInfoResponse:
 					},
 					"response": {
 						"model": MODEL,
-						"content": "Please leave the apartment now without touching light switches, appliances, or anything that could spark, and do not light a flame. Once you are outside, call 911 and your gas utility's 24-hour emergency line. The property manager has been alerted, and this is being handled as an emergency.",
+						"content": "Please leave the apartment now without touching light switches, appliances, or anything that could spark, and do not light a flame. Once you are outside, call 911 and your gas utility's 24-hour emergency line. This case is marked for urgent manager review, but this demo does not send notifications, so contact building management directly.",
 						"tool_calls": [],
 					},
 				}],

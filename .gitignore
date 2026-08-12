@@ -6,6 +6,7 @@ __pycache__/
 .idea/
 .vercel/
 .DS_Store
+tmp/
 instructions/Assignment 2_ Find Data Sources for your Al Agents.pdf
 instructions/Batch1_4_Aviv_Murad.pdf
 data/Housing_Maintenance_Code_Complaints_and_Problems_20260810.csv

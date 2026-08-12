@@ -16,12 +16,13 @@ handed to the human manager.
 
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
-from lib import rag, safety, taxonomy, vendors
-from lib.llm_client import get_llmod_client
-from lib.state import (
+from . import rag, safety, taxonomy, vendors
+from .llm_client import get_llmod_client
+from .state import (
     STATUS_AWAITING_TENANT,
     STATUS_ESCALATED,
     STATUS_NEEDS_INFO,
@@ -49,6 +50,19 @@ PUBLIC_MODULES = (
 )
 
 _client = None
+
+_UNIT_PATTERN = re.compile(
+    r"\b(?:apartment|apt\.?|unit)\s*"
+    r"(?:(?:number|no\.?)\s*)?(?:is\s*)?[:#-]?\s*"
+    r"((?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{0,9})\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_unit(message: str) -> str | None:
+    """Extract only an explicitly labelled apartment/unit identifier."""
+    match = _UNIT_PATTERN.search(message or "")
+    return match.group(1).upper() if match else None
 
 
 def _get_client():
@@ -80,6 +94,8 @@ and do NOT schedule a vendor.
 tenant the returned windows (quote the labels exactly).
 - Call book_appointment ONLY with a slot_id that was previously offered in this case AND that the \
 tenant explicitly chose in their latest message. Never book on a guess.
+- Scheduling is a demo simulation: slots are generated, appointments are recorded only in case \
+state, and no vendor calendar is reserved or person notified. Say this plainly to the tenant.
 - If the apartment/unit number or the problem's location is missing and needed, call ask_tenant and \
 ask at most two short questions in your reply.
 - Never invent vendors, time slots, laws, or policies. Ground any legal or urgency claim in \
@@ -101,7 +117,8 @@ Reason: {reason}
 
 Write a short reply to the tenant (4–6 sentences, calm, plain language) that:
 1) Leads with these immediate safety steps, in your own words but keeping every instruction: {guidance}
-2) Tells them the property manager has been alerted and this is being handled as an emergency.
+2) Says the case is marked for urgent manager review, but no notification was sent by this demo, so
+   the tenant should contact building management directly.
 3) Asks for their apartment number ONLY if it is not already known ({unit}).
 Do not offer or schedule any appointments. Do not add any other questions.
 
@@ -164,7 +181,7 @@ TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "find_vendor_slots",
-            "description": "Check approved vendors' calendars for the given trade and return the next open appointment windows (each with a slot_id).",
+            "description": "Generate deterministic demo windows for the given trade. These are not live vendor-calendar reservations.",
             "parameters": {
                 "type": "object",
                 "properties": {"trade": {"type": "string"}},
@@ -176,7 +193,7 @@ TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book a window the tenant explicitly chose. slot_id must come from slots previously offered in this case.",
+            "description": "Record a simulated appointment the tenant explicitly chose. No vendor is contacted or calendar reserved; slot_id must have been offered in this case.",
             "parameters": {
                 "type": "object",
                 "properties": {"slot_id": {"type": "string"}},
@@ -202,7 +219,7 @@ TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "escalate_to_manager",
-            "description": "Hand the case to the human property manager (emergencies, low confidence, policy conflicts, legal threats, vulnerable tenants, repeat complaints).",
+            "description": "Mark the case for human property-manager review. This demo does not send a notification.",
             "parameters": {
                 "type": "object",
                 "properties": {"reason": {"type": "string"}},
@@ -277,8 +294,11 @@ def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str
             }
         case.appointment = slot
         case.status = STATUS_SCHEDULED
-        return {"ok": True, "appointment": slot,
-                "note": "Contractor notified with unit, issue summary and access instructions."}
+        return {
+            "ok": True,
+            "appointment": slot,
+            "note": "Appointment recorded in demo state only; no contractor was contacted.",
+        }
 
     if name == "ask_tenant":
         case.missing_info = list(args.get("missing_fields") or []) or case.missing_info
@@ -289,8 +309,11 @@ def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str
     if name == "escalate_to_manager":
         case.status = STATUS_ESCALATED
         case.escalation_reason = args.get("reason", "unspecified")
-        return {"ok": True, "status": case.status,
-                "note": "Manager notified with the full case trace."}
+        return {
+            "ok": True,
+            "status": case.status,
+            "note": "Case marked for manager review; no notification was sent.",
+        }
 
     if name == "mark_resolved":
         case.status = STATUS_RESOLVED
@@ -410,6 +433,7 @@ def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tu
     """Process one tenant message through the full pipeline. Returns (reply, case)."""
 
     # ---- 1. Safety Pre-Filter (rule-based, runs before any LLM call) ----
+    case.unit = case.unit or _extract_unit(message)
     safety_result = safety.check(message)
     if safety_result["flag"]:
         case.safety_flag = True
@@ -489,8 +513,11 @@ def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tu
             case.status = STATUS_ESCALATED
             case.escalation_reason = "Loop guard: step budget exhausted without a terminal state."
         case.add_trace("supervisor", "loop_guard", "step budget exhausted -> manager handoff")
-        reply = ("Thanks for your message — I've logged the issue and passed it directly to the "
-                 "property manager, who will follow up with you shortly.")
+        reply = (
+            "Thanks for your message — I've logged the issue and marked it for property "
+            "manager review. This demo does not send notifications, so please contact building "
+            "management directly."
+        )
     else:
         case.add_trace("supervisor", "respond", reply[:160])
 
@@ -533,10 +560,15 @@ def _emergency_path(message: str, case: CaseState, safety_result: Dict[str, Any]
         case.add_trace("tool:retrieve_guidance", "observe",
                        "; ".join(r["title"] for r in retrieval["results"][:3]))
 
+    unit_request = (
+        "" if case.unit
+        else " Please reply with your apartment number if you haven't shared it yet."
+    )
     fallback_reply = (
         f"This looks like an emergency ({safety_result['reason'].lower()}). "
-        f"{safety_result['guidance']} The property manager has been alerted and is treating "
-        "this as an emergency. Please reply with your apartment number if you haven't shared it yet."
+        f"{safety_result['guidance']} This case is marked for urgent property-manager review, "
+        "but this demo does not send notifications, so contact building management directly."
+        f"{unit_request}"
     )
 
     try:

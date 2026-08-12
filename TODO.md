@@ -16,26 +16,26 @@ This file is the working release checklist. Finish P0 before deployment, then P1
 - Static root UI with prompt input, Run Agent button, final response, and expandable trace.
 - Architecture PNG/SVG, setup documentation, and Vercel configuration with a 300-second function duration.
 - Course materials organized under `instructions/`.
-- Thirteen offline API-contract and LLM-trace tests covering all required endpoints, structured failure modes, trace ordering, architecture consistency, and Vercel-style imports.
+- Seventeen offline API-contract, package-import, safety-fallback, and LLM-trace tests covering all required endpoints, structured failure modes, trace ordering, architecture consistency, and Vercel-style imports.
 - Local audit results: all Python files compile; the offline suite passes; taxonomy dry run passes; PDF extraction produces 625 chunks across 138 pages, with 2 pages skipped.
 
 ## P0 - Release blockers
 
 ### 1. Preserve and clean up the current work
-- [ ] Normalize the `api/lib` import strategy so direct `import api.lib.agent` works without first importing `api.index`, or document and test the chosen entrypoint-only strategy.
+- [x] Normalize the `api/lib` import strategy so direct `import api.lib.agent` works without first importing `api.index`, or document and test the chosen entrypoint-only strategy.
 - [ ] Verify in a Vercel preview build that non-underscored helpers under `api/lib/` are bundled as dependencies and are not exposed or built as unintended functions.
 
 ### 2. Make the advertised workflow genuinely end-to-end
 
-- [ ] Decide and document the interaction contract: one-shot triage only, or multi-turn triage plus booking. The current root UI calls stateless `/api/execute`, so a tenant cannot choose a previously offered slot and complete the advertised booking flow.
+- [x] Decide and document the interaction contract: one-shot triage only, or multi-turn triage plus booking. The current root UI calls stateless `/api/execute`, so a tenant cannot choose a previously offered slot and complete the advertised booking flow.
 - [ ] If booking remains in scope, connect the required UI flow to durable server-side case state while preserving the assignment's `/api/execute` request/response contract.
-- [ ] Replace deterministic in-memory vendors and generated slots in `api/lib/vendors.py` with the existing Supabase `vendors`, `vendor_slots`, and `appointments` tables, or clearly relabel scheduling as a demo simulation everywhere.
-- [ ] Do not claim that a contractor or manager was notified unless a real notification/integration occurred. Return truthful wording for simulated actions.
+- [x] Replace deterministic in-memory vendors and generated slots in `api/lib/vendors.py` with the existing Supabase `vendors`, `vendor_slots`, and `appointments` tables, or clearly relabel scheduling as a demo simulation everywhere.
+- [x] Do not claim that a contractor or manager was notified unless a real notification/integration occurred. Return truthful wording for simulated actions.
 - [ ] Make booking atomic and concurrency-safe: validate availability, lock/claim the slot, create the appointment, and update the case in one database transaction/RPC.
 - [ ] Enforce the explicit-choice rule in code, not only in the prompt. A slot must have been offered before the current model turn and the latest tenant message must unambiguously select it.
 - [ ] Enforce terminal-state invariants after the model loop. Do not return `status: ok` with a case still in `new`, or allow scheduling after escalation.
 - [ ] Handle timezone, daylight-saving time, weekends/business hours, expired slots, cancellations, duplicate retries, and simultaneous bookings.
-- [ ] Either implement the WhatsApp/SMS/email claims from the presentation or clearly state that the delivered app currently supports the portal channel only.
+- [x] Either implement the WhatsApp/SMS/email claims from the presentation or clearly state that the delivered app currently supports the portal channel only.
 
 ### 3. Verify production data and external services
 
@@ -129,7 +129,7 @@ Current baseline: up to 6 supervisor iterations, 12 prior chat messages, 4,000 c
 
 ### 10. Harden safety, security, and reliability
 
-- [ ] Extract apartment/unit deterministically before the force-emergency path so the emergency reply does not ask for a unit already present in the message.
+- [x] Extract apartment/unit deterministically before the force-emergency path so the emergency reply does not ask for a unit already present in the message.
 - [ ] Validate all state transitions and sensitive actions outside the LLM. Treat the model as a planner, not the authority for safety and booking policy.
 - [ ] Stop trusting arbitrary client-supplied `/api/chat.case_state`; load authoritative state by opaque case ID or validate/sign client state.
 - [ ] Add prompt-injection and data-exfiltration tests. Never let tenant text override system policy or expose other cases, prompts, secrets, or internal data.

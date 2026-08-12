@@ -7,9 +7,11 @@ retrieves landlord obligations from an official housing-guidance corpus (RAG),
 and selects a safe next action using an explicit safety pre-filter, autonomy
 policy, and loop guard.
 
-The required `/api/execute` endpoint and root UI currently support one-shot
-triage. Vendor availability and notifications are still demo simulations; they
-must not be treated as real bookings or messages to a contractor or manager.
+For this release, the required `/api/execute` endpoint and root UI deliberately
+support one-shot triage only. Multi-turn booking is outside the delivered public
+flow until durable server-side case state is implemented. Vendor availability,
+appointments, and notifications are demo simulations; they must not be treated
+as real reservations or messages to a contractor or manager.
 
 **Stack:** LLMod/OpenAI-compatible API (chat + embeddings) · Pinecone (vector DB) · FastAPI (Python)
 · vanilla HTML/JS frontend · Vercel (serverless deployment).
@@ -126,6 +128,9 @@ the Vercel-style Python entrypoint.
 | `SUPABASE_SECRET_KEY` | — | required backend-only secret key; never expose it to the browser |
 | `PINECONE_API_KEY` | — | required (RAG degrades gracefully without it) |
 | `PINECONE_INDEX` | `maintenance-copilot` | index name |
+| `PINECONE_NAMESPACE` | `official-housing-v1` | required versioned corpus namespace; set explicitly locally and in Vercel |
+| `PINECONE_CLOUD` | `aws` | optional index-creation setting |
+| `PINECONE_REGION` | `us-east-1` | optional index-creation setting |
 | `LLMOD_MODEL` | `MB5R2CF-azure/gpt-5.4-mini` | supervisor model through LLMod |
 | `EMBED_MODEL` | `MB5R2CF-azure/text-embedding-3-small` | 1536-dim embeddings through LLMod |
 
@@ -147,8 +152,11 @@ page extraction and chunking locally first; this makes no service calls:
 .\.venv\Scripts\python.exe scripts\load_official_sources.py --dry-run
 ```
 
-To deliberately embed all chunks through LLMod and synchronize Pinecone plus
-the Supabase `rag_documents`/`rag_chunks` manifests:
+Do not upload immediately after a dry run. First evaluate candidate chunking
+settings on the fixed tuning set, choose a versioned namespace, and record the
+winning configuration. Then deliberately upload that corpus once to embed all
+chunks through LLMod and synchronize Pinecone plus the Supabase
+`rag_documents`/`rag_chunks` manifests:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\load_official_sources.py --upload
@@ -170,8 +178,14 @@ the live retrieval check explicitly:
 - `api/lib/vendors.py` returns deterministic demonstration vendors and time
   windows. It does not reserve Supabase slots or contact anyone.
 - Supabase is required for a successful `/api/execute`; Pinecone retrieval can
-  degrade gracefully when unavailable.
+  degrade gracefully when unavailable, but no retrieved guidance citations are
+  available in that fallback mode.
 - The portal is the delivered channel. WhatsApp, SMS, and email are conceptual
   channels from the project presentation, not current integrations.
+- The checked-in official PDFs are local snapshots whose freshness still needs
+  release verification. Retrieved guidance is source-grounded information, not
+  legal advice.
+- Emergency guidance has a deterministic fallback, but the app does not contact
+  emergency services, building management, tenants, or contractors.
 
 See `TODO.md` for the prioritized path from this baseline to submission.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import struct
 import subprocess
@@ -124,6 +125,10 @@ class AssignmentApiContractTests(unittest.TestCase):
         self.assertIsInstance(body["prompt_template"]["template"], str)
         self.assertTrue(body["prompt_template"]["template"].strip())
         self.assertGreaterEqual(len(body["prompt_examples"]), 1)
+        public_copy = json.dumps(body).lower()
+        self.assertIn("simulated scheduling", public_copy)
+        self.assertNotIn("has been alerted", public_copy)
+        self.assertNotIn("contractor notified", public_copy)
 
         for example in body["prompt_examples"]:
             self.assertEqual(set(example), {"prompt", "full_response", "steps"})
@@ -310,6 +315,18 @@ class AssignmentApiContractTests(unittest.TestCase):
             [sys.executable, "-c", code],
             cwd=ROOT / "api",
             env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_agent_supports_direct_package_import(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-c", "import api.lib.agent"],
+            cwd=ROOT,
+            env=os.environ.copy(),
             capture_output=True,
             text=True,
             timeout=30,

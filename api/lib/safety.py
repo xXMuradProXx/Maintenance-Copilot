@@ -54,7 +54,7 @@ FORCE_RULES = [
         "guidance": (
             "Stay calm and do not try to force the doors or climb out. Press the "
             "alarm/help button inside the elevator and call 911 if anyone is in "
-            "distress. Help is being dispatched."
+            "distress. Do not assume help is on the way until someone confirms."
         ),
     },
 ]

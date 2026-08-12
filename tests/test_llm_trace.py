@@ -42,6 +42,35 @@ def fake_client(responses):
 
 
 class LlmTraceTests(unittest.TestCase):
+    def test_explicit_unit_extraction_is_conservative(self) -> None:
+        examples = {
+            "There is smoke in apartment 4b": "4B",
+            "Gas smell, apt. #12-A": "12-A",
+            "My unit number is 3C": "3C",
+        }
+        for message, expected in examples.items():
+            with self.subTest(message=message):
+                self.assertEqual(agent_module._extract_unit(message), expected)
+
+        for message in ("The kitchen sink is leaking", "Call 911", "The unit is on fire"):
+            with self.subTest(message=message):
+                self.assertIsNone(agent_module._extract_unit(message))
+
+    def test_force_emergency_fallback_does_not_reask_known_unit(self) -> None:
+        case = CaseState()
+        with (
+            patch.object(agent_module.rag, "retrieve", return_value={"results": []}),
+            patch.object(agent_module, "_call_llm", side_effect=TimeoutError("offline")),
+        ):
+            reply, result = agent_module.run_case(
+                "I smell gas in apartment 4B",
+                [],
+                case,
+            )
+
+        self.assertEqual(result.unit, "4B")
+        self.assertNotIn("reply with your apartment number", reply.lower())
+
     def test_each_successful_call_is_recorded_once_and_in_order(self) -> None:
         case = CaseState()
         messages = [
@@ -109,6 +138,29 @@ class LlmTraceTests(unittest.TestCase):
                 [{"role": "user", "content": "Tenant message"}],
             )
         self.assertEqual(case.llm_steps, [])
+
+    def test_simulated_actions_do_not_claim_notifications_were_sent(self) -> None:
+        case = CaseState()
+        slot = {
+            "slot_id": "PL-01-TEST-10",
+            "vendor_name": "Demo Plumber",
+            "trade": "plumber",
+        }
+        case.offered_slots = [slot]
+
+        booking = agent_module._dispatch_tool(
+            "book_appointment",
+            {"slot_id": slot["slot_id"]},
+            case,
+        )
+        self.assertIn("no contractor was contacted", booking["note"].lower())
+
+        escalation = agent_module._dispatch_tool(
+            "escalate_to_manager",
+            {"reason": "manual review required"},
+            case,
+        )
+        self.assertIn("no notification was sent", escalation["note"].lower())
 
 
 if __name__ == "__main__":

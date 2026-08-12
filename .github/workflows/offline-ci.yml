@@ -1,0 +1,37 @@
+name: Offline CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-and-imports:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Run offline unit and contract tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Compile serverless and script modules
+        run: python -m compileall -q api scripts
+
+      - name: Validate the approved taxonomy snapshot
+        run: python scripts/load_taxonomy.py --dry-run
