@@ -3,366 +3,644 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Maintenance Copilot — Tenant Request Triage</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<meta name="color-scheme" content="light" />
+<meta name="theme-color" content="#123d36" />
+<title>Maintenance Copilot - Tenant Request Triage</title>
 <style>
-  :root{
-    --ink:#1d2733;        /* deep slate — ops side */
-    --paper:#f5f1e7;      /* warm paper — tenant side (team deck palette) */
-    --pine:#17685b;       /* brand green */
-    --pine-soft:#e2ece8;
-    --amber:#b97e14;
-    --signal:#bf3b2b;     /* emergency red */
-    --card:#ffffff;
-    --line:#e3dccb;
-    --muted:#6b7280;
-    --radius:14px;
-    --mono:'IBM Plex Mono',ui-monospace,monospace;
-    --body:'Public Sans',system-ui,sans-serif;
-    --display:'Fraunces',Georgia,serif;
+  :root {
+    color-scheme: light;
+    --canvas: #f3f0e8;
+    --surface: #fffefa;
+    --surface-muted: #f7f4ec;
+    --ink: #15211f;
+    --muted: #63706c;
+    --line: #d8d8cd;
+    --brand: #176b5b;
+    --brand-dark: #0f4e43;
+    --brand-soft: #e4f0ec;
+    --navy: #122b29;
+    --danger: #a53425;
+    --danger-soft: #fbe9e5;
+    --warning: #8b5a05;
+    --warning-soft: #fbf0d5;
+    --focus: #d49217;
+    --shadow: 0 16px 44px rgba(25, 43, 39, 0.08);
+    --radius: 18px;
+    --sans: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --serif: Georgia, "Times New Roman", serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%}
-  body{font-family:var(--body);background:var(--paper);color:var(--ink);display:flex;flex-direction:column}
-  button{font-family:inherit;cursor:pointer}
-  :focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
 
-  /* ---------- header ---------- */
-  header{background:var(--ink);color:#f4f0e6;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .wordmark{font-family:var(--display);font-weight:650;font-size:1.28rem;letter-spacing:.2px}
-  .wordmark em{color:#8fd3c5;font-style:normal}
-  .sub{font-size:.78rem;color:#b9c2cc;font-family:var(--mono)}
-  header .spacer{flex:1}
-  .case-chip{font-family:var(--mono);font-size:.78rem;background:#2b3a4a;padding:6px 12px;border-radius:999px;color:#dfe7ee}
-  .btn-ghost{background:transparent;border:1px solid #4b5a6a;color:#dfe7ee;border-radius:999px;padding:6px 14px;font-size:.8rem}
-  .btn-ghost:hover{border-color:#8fd3c5;color:#8fd3c5}
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    min-width: 320px;
+    background:
+      radial-gradient(circle at 88% 4%, rgba(32, 126, 107, 0.12), transparent 24rem),
+      var(--canvas);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+  }
 
-  /* ---------- layout ---------- */
-  main{flex:1;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:20px;padding:20px 22px;max-width:1240px;width:100%;margin:0 auto;min-height:0}
-  @media(max-width:920px){main{grid-template-columns:1fr;overflow:visible}}
+  button, textarea { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: wait; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+  [hidden] { display: none !important; }
 
-  /* ---------- chat ---------- */
-  .chat{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);min-height:520px;max-height:calc(100vh - 118px);overflow:hidden}
-  @media(max-width:920px){.chat{max-height:none;height:72vh}}
-  .chat-head{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
-  .chat-head h2{font-family:var(--display);font-weight:650;font-size:1rem}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--pine);animation:pulse 2.4s infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  .messages{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px;background:
-    linear-gradient(180deg,#fbf8f1 0,#fff 120px)}
-  .bubble{max-width:82%;padding:11px 15px;border-radius:14px;font-size:.92rem;line-height:1.5;white-space:pre-wrap;animation:rise .28s ease both}
-  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-  .bubble.tenant{align-self:flex-end;background:var(--pine);color:#fff;border-bottom-right-radius:4px}
-  .bubble.copilot{align-self:flex-start;background:#f5f2e9;border:1px solid var(--line);border-bottom-left-radius:4px}
-  .bubble.error{align-self:center;background:#fdeceb;border:1px solid #f0b9b2;color:#8a2417;font-size:.85rem}
-  .bubble .who{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;opacity:.65;margin-bottom:4px}
-  .typing{align-self:flex-start;display:flex;gap:5px;padding:14px 16px;background:#f5f2e9;border:1px solid var(--line);border-radius:14px}
-  .typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
-  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
-  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  .skip-link {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    transform: translateY(-160%);
+    padding: 9px 13px;
+    border-radius: 9px;
+    background: var(--ink);
+    color: #fff;
+  }
+  .skip-link:focus { transform: translateY(0); }
 
-  .chips{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 10px}
-  .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:.78rem;color:var(--ink)}
-  .chip:hover{border-color:var(--pine);color:var(--pine)}
+  .site-header {
+    border-bottom: 1px solid rgba(18, 43, 41, 0.16);
+    background: rgba(255, 254, 250, 0.86);
+    backdrop-filter: blur(16px);
+  }
+  .header-inner {
+    width: min(1120px, calc(100% - 40px));
+    min-height: 72px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    background: var(--navy);
+    color: #b7eadc;
+    font-family: var(--serif);
+    font-size: 1.22rem;
+    font-weight: 700;
+  }
+  .brand-copy { line-height: 1.15; }
+  .brand-copy strong { display: block; font-family: var(--serif); font-size: 1.08rem; }
+  .brand-copy span { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  .mode-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--brand-dark);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  .mode-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--brand); }
 
-  .composer{border-top:1px solid var(--line);padding:12px 16px;display:flex;flex-direction:column;gap:10px;background:#fdfbf5}
-  .channels{display:flex;gap:2px;background:#eee8d8;border-radius:999px;padding:3px;width:max-content}
-  .channels button{border:none;background:transparent;border-radius:999px;padding:5px 13px;font-size:.76rem;font-family:var(--mono);color:var(--muted)}
-  .channels button[aria-pressed="true"]{background:var(--ink);color:#fff}
-  .inputrow{display:flex;gap:10px}
-  textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:10px;padding:11px 13px;font:inherit;font-size:.92rem;background:#fff;min-height:48px;max-height:140px}
-  textarea:focus{border-color:var(--pine);outline:none;box-shadow:0 0 0 3px rgba(23,104,91,.14)}
-  .send{background:var(--pine);color:#fff;border:none;border-radius:10px;padding:0 22px;font-weight:600;font-size:.92rem}
-  .send:hover{background:#125243}
-  .send:disabled{background:#9db8b1;cursor:not-allowed}
+  main {
+    width: min(1120px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 68px 0 48px;
+  }
+  .hero { max-width: 780px; margin-bottom: 34px; }
+  .eyebrow {
+    margin: 0 0 10px;
+    color: var(--brand-dark);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0;
+    max-width: 760px;
+    font-family: var(--serif);
+    font-size: clamp(2.35rem, 6vw, 4.6rem);
+    font-weight: 500;
+    letter-spacing: -0.045em;
+    line-height: 0.99;
+  }
+  .lede { max-width: 670px; margin: 20px 0 0; color: #4f5c58; font-size: clamp(1rem, 2vw, 1.15rem); }
 
-  /* ---------- ops rail ---------- */
-  .rail{display:flex;flex-direction:column;gap:18px;min-height:0;overflow-y:auto;max-height:calc(100vh - 118px);padding-bottom:4px}
-  @media(max-width:920px){.rail{max-height:none;overflow:visible}}
+  .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
+  .primary-stack { min-width: 0; display: grid; gap: 18px; }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .compose-card { padding: clamp(20px, 4vw, 30px); }
+  .card-label { display: block; margin-bottom: 10px; font-size: 0.83rem; font-weight: 800; }
+  .prompt-wrap { position: relative; }
+  textarea {
+    width: 100%;
+    min-height: 156px;
+    resize: vertical;
+    display: block;
+    padding: 17px 18px 40px;
+    border: 1px solid #bfc8c3;
+    border-radius: 13px;
+    background: #fff;
+    color: var(--ink);
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+  textarea::placeholder { color: #7a8581; }
+  textarea:focus { border-color: var(--brand); outline: 3px solid rgba(23, 107, 91, 0.17); }
+  .counter { position: absolute; right: 14px; bottom: 11px; color: var(--muted); font-family: var(--mono); font-size: 0.7rem; }
+  .validation { margin: 8px 0 0; color: var(--danger); font-size: 0.83rem; font-weight: 650; }
+  .compose-actions { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .key-hint { margin: 0; color: var(--muted); font-size: 0.75rem; }
+  kbd { padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface-muted); font-family: var(--sans); font-size: 0.7rem; }
+  .run-button, .secondary-button, .copy-button {
+    border: 0;
+    border-radius: 11px;
+    font-weight: 750;
+  }
+  .run-button { min-height: 48px; padding: 0 22px; background: var(--brand); color: #fff; box-shadow: 0 7px 18px rgba(23, 107, 91, 0.18); }
+  .run-button:hover:not(:disabled) { background: var(--brand-dark); transform: translateY(-1px); }
+  .run-button:disabled { background: #799b93; }
+  .secondary-button { min-height: 40px; padding: 0 15px; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+  .secondary-button:hover { border-color: var(--brand); color: var(--brand-dark); }
 
-  /* work-order ticket (signature element) */
-  .ticket{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);position:relative;box-shadow:0 8px 22px rgba(29,39,51,.07)}
-  .ticket-stub{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:2px dashed var(--line);position:relative}
-  .ticket-stub::before,.ticket-stub::after{content:"";position:absolute;bottom:-9px;width:16px;height:16px;border-radius:50%;background:var(--paper);border:1px solid var(--line)}
-  .ticket-stub::before{left:-9px}.ticket-stub::after{right:-9px}
-  .ticket-stub h2{font-family:var(--display);font-weight:650;font-size:1.02rem}
-  .status-pill{font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;border-radius:999px;background:#eee8d8;color:var(--muted)}
-  .status-pill[data-s="scheduled"]{background:var(--pine-soft);color:var(--pine)}
-  .status-pill[data-s="escalated"]{background:#fdeceb;color:var(--signal)}
-  .status-pill[data-s="needs_info"],.status-pill[data-s="awaiting_tenant"]{background:#f8ecd4;color:var(--amber)}
-  .status-pill[data-s="resolved"]{background:#e4efe4;color:#2c6b33}
+  .result-card { overflow: hidden; }
+  .result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 22px 24px 0; }
+  .result-kicker { margin: 0 0 3px; color: var(--muted); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+  .result-head h2 { margin: 0; font-family: var(--serif); font-size: 1.55rem; font-weight: 500; }
+  .result-meta { flex: none; margin-top: 2px; color: var(--muted); font-family: var(--mono); font-size: 0.72rem; }
+  .result-body { padding: 20px 24px 25px; }
+  .result-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1.02rem; line-height: 1.72; }
+  .result-empty { margin: 0; color: var(--muted); }
+  .result-card[data-state="loading"] .result-body { display: flex; gap: 12px; align-items: center; }
+  .spinner { width: 20px; height: 20px; flex: none; border: 2px solid #bed3cc; border-top-color: var(--brand); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .result-card[data-state="error"] { border-color: #e7b7ae; background: #fffaf8; }
+  .result-card[data-state="error"] .result-kicker, .result-card[data-state="error"] .result-head h2 { color: var(--danger); }
+  .error-actions { display: flex; gap: 10px; margin-top: 18px; }
 
-  .ticket-body{padding:16px 18px 18px;position:relative}
-  .fields{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
-  .field{min-width:0}
-  .field label{display:block;font-family:var(--mono);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
-  .field div{font-size:.88rem;font-weight:500;overflow-wrap:anywhere}
-  .field.wide{grid-column:1/-1}
-  .stamp{position:absolute;top:10px;right:14px;font-family:var(--mono);font-weight:600;font-size:.78rem;letter-spacing:.14em;padding:5px 12px;border:2.5px solid currentColor;border-radius:6px;transform:rotate(-7deg);opacity:0;pointer-events:none}
-  .stamp.show{animation:stampIn .35s cubic-bezier(.2,1.6,.4,1) both}
-  @keyframes stampIn{from{opacity:0;transform:rotate(-7deg) scale(1.7)}to{opacity:.92;transform:rotate(-7deg) scale(1)}}
-  .stamp[data-u="EMERGENCY"]{color:var(--signal)}
-  .stamp[data-u="URGENT"]{color:var(--amber)}
-  .stamp[data-u="ROUTINE"]{color:var(--pine)}
-  .banner{margin-top:14px;border-radius:9px;padding:9px 12px;font-size:.8rem;display:none}
-  .banner.safety{display:block;background:#fdeceb;border:1px solid #f0b9b2;color:#8a2417}
-  .banner.appt{display:block;background:var(--pine-soft);border:1px solid #bcd6cd;color:#0f4c40}
+  .trace-shell { overflow: hidden; }
+  .trace-shell > summary { list-style: none; display: flex; align-items: center; gap: 13px; padding: 19px 22px; cursor: pointer; }
+  .trace-shell > summary::-webkit-details-marker { display: none; }
+  .trace-shell > summary::before { content: "+"; width: 26px; height: 26px; display: grid; place-items: center; flex: none; border-radius: 8px; background: var(--brand-soft); color: var(--brand-dark); font-size: 1.15rem; }
+  .trace-shell[open] > summary::before { content: "−"; }
+  .trace-title { min-width: 0; }
+  .trace-title strong { display: block; font-size: 0.91rem; }
+  .trace-title span { display: block; color: var(--muted); font-size: 0.77rem; }
+  .trace-count { margin-left: auto; padding: 4px 9px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-family: var(--mono); font-size: 0.7rem; }
+  .trace-list { margin: 0; padding: 0 20px 20px; list-style: none; counter-reset: trace; }
+  .trace-step { counter-increment: trace; margin-top: 10px; border: 1px solid var(--line); border-radius: 13px; background: #fff; overflow: hidden; }
+  .trace-step > summary { list-style: none; display: flex; align-items: center; gap: 11px; padding: 13px 14px; cursor: pointer; }
+  .trace-step > summary::-webkit-details-marker { display: none; }
+  .trace-step > summary::before { content: counter(trace, decimal-leading-zero); color: var(--muted); font-family: var(--mono); font-size: 0.7rem; }
+  .module-name { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.78rem; font-weight: 700; }
+  .step-meta { margin-left: auto; color: var(--muted); font-size: 0.7rem; white-space: nowrap; }
+  .trace-step-body { border-top: 1px solid var(--line); padding: 14px; background: #fbfaf6; }
+  .trace-section + .trace-section { margin-top: 14px; }
+  .trace-section-head { margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .trace-section h4 { margin: 0; font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase; }
+  .copy-button { padding: 4px 8px; background: transparent; color: var(--brand-dark); font-size: 0.7rem; }
+  .copy-button:hover { background: var(--brand-soft); }
+  .code-value { margin: 0; max-height: 240px; overflow: auto; padding: 12px; border: 1px solid #e0e0d7; border-radius: 9px; background: #fff; color: #24312e; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.72rem; line-height: 1.55; }
+  .trace-empty { padding: 8px 2px 2px; color: var(--muted); font-size: 0.84rem; }
 
-  /* agent trace */
-  .tracecard{background:var(--ink);color:#dfe7ee;border-radius:var(--radius);padding:16px 18px;flex:1;min-height:200px}
-  .tracecard h2{font-family:var(--display);font-weight:650;font-size:1rem;color:#f4f0e6;margin-bottom:4px}
-  .tracecard p.hint{font-size:.76rem;color:#8fa0b0;margin-bottom:12px}
-  .trace{list-style:none;display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:.74rem;line-height:1.45}
-  .trace li{display:block;border-top:1px solid #344b5d;padding-top:8px;animation:rise .25s ease both}
-  .trace .n{color:#5f7183}
-  .trace .actor{color:#8fd3c5;overflow-wrap:anywhere}
-  .trace li[data-a^="safety"] .actor{color:#f2a196}
-  .trace li[data-a="supervisor"] .actor{color:#e9c46a}
-  .trace .d{color:#c6d0da;overflow-wrap:anywhere}
-  .trace summary{cursor:pointer;color:#8fd3c5;margin-bottom:6px}
-  .trace pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#c6d0da;font:inherit;max-height:360px;overflow:auto}
-  .trace-empty{color:#8fa0b0;font-size:.8rem;font-family:var(--body)}
+  .examples { position: sticky; top: 20px; padding: 22px; }
+  .examples h2 { margin: 0; font-family: var(--serif); font-size: 1.35rem; font-weight: 500; }
+  .examples-intro { margin: 7px 0 17px; color: var(--muted); font-size: 0.84rem; }
+  .example-list { display: grid; gap: 10px; }
+  .example {
+    width: 100%;
+    display: block;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: #fff;
+    color: var(--ink);
+    text-align: left;
+  }
+  .example:hover { border-color: var(--brand); background: var(--brand-soft); }
+  .example-kind { display: block; margin-bottom: 4px; color: var(--brand-dark); font-size: 0.65rem; font-weight: 850; letter-spacing: 0.09em; text-transform: uppercase; }
+  .example[data-tone="urgent"] .example-kind { color: var(--warning); }
+  .example[data-tone="emergency"] .example-kind { color: var(--danger); }
+  .example-text { display: block; color: #44504c; font-size: 0.78rem; line-height: 1.4; }
+  .scope-note { margin: 17px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; }
+  .scope-note strong { color: var(--ink); }
 
-  footer{padding:10px 22px 16px;text-align:center;font-size:.72rem;color:var(--muted)}
-  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  footer { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 0 0 32px; color: var(--muted); font-size: 0.75rem; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 860px) {
+    main { padding-top: 50px; }
+    .workspace { grid-template-columns: 1fr; }
+    .examples { position: static; order: -1; }
+    .example-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .header-inner, main, footer { width: min(100% - 24px, 1120px); }
+    .header-inner { min-height: 64px; }
+    .brand-copy span, .key-hint { display: none; }
+    main { padding-top: 38px; }
+    .hero { margin-bottom: 25px; }
+    h1 { font-size: clamp(2.2rem, 13vw, 3.5rem); }
+    .workspace { gap: 14px; }
+    .compose-card, .examples { padding: 18px; }
+    textarea { min-height: 140px; }
+    .compose-actions { align-items: stretch; }
+    .run-button { width: 100%; }
+    .example-list { grid-template-columns: 1fr; }
+    .result-head, .result-body { padding-left: 18px; padding-right: 18px; }
+    .result-head { flex-direction: column; gap: 5px; }
+    .trace-shell > summary { padding: 16px; }
+    .trace-list { padding: 0 12px 12px; }
+    .step-meta { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition: none !important; }
+  }
+  @media (forced-colors: active) {
+    .mode-badge::before { border: 1px solid currentColor; }
+  }
 </style>
 </head>
 <body>
+<a class="skip-link" href="#prompt">Skip to request</a>
 
-<header>
-  <div>
-    <div class="wordmark">Maintenance <em>Copilot</em></div>
-    <div class="sub">tenant request → work order → next state</div>
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand" aria-label="Maintenance Copilot">
+      <span class="brand-mark" aria-hidden="true">M</span>
+      <div class="brand-copy"><strong>Maintenance Copilot</strong><span>Tenant request triage</span></div>
+    </div>
+    <span class="mode-badge">Public course demo</span>
   </div>
-  <div class="spacer"></div>
-  <span class="case-chip" id="caseChip">assignment API</span>
-  <button class="btn-ghost" id="resetBtn" type="button">New case</button>
 </header>
 
 <main>
-  <!-- ============ chat ============ -->
-  <section class="chat" aria-label="Tenant conversation">
-    <div class="chat-head"><span class="dot" aria-hidden="true"></span><h2>Tenant conversation</h2></div>
-
-    <div class="messages" id="messages" aria-live="polite"></div>
-
-    <div class="chips" id="chips">
-      <button class="chip" type="button">The kitchen sink is clogged and water drains very slowly. Apt 4B.</button>
-      <button class="chip" type="button">No heat again since yesterday, apartment 12C</button>
-      <button class="chip" type="button">The wall is wet and smells bad</button>
-      <button class="chip" type="button">I smell gas in my kitchen!!</button>
-    </div>
-
-    <div class="composer">
-      <div class="inputrow">
-        <textarea id="input" rows="1" placeholder="Type a tenant message… (Enter to send, Shift+Enter for a new line)" aria-label="Tenant message"></textarea>
-        <button class="send" id="sendBtn" type="button">Run Agent</button>
-      </div>
-    </div>
+  <section class="hero" aria-labelledby="page-title">
+    <p class="eyebrow">From message to next action</p>
+    <h1 id="page-title">Describe what needs attention.</h1>
+    <p class="lede">Turn an unstructured tenant message into a safety-aware, source-grounded maintenance response. Add the apartment number, when the issue began, and any immediate hazards you notice.</p>
   </section>
 
-  <!-- ============ ops rail ============ -->
-  <aside class="rail" aria-label="Case operations">
-    <div class="tracecard">
-      <h2>Agent trace</h2>
-      <p class="hint">Every LLM call, including its complete prompt and response.</p>
-      <ol class="trace" id="trace"><li class="trace-empty">No decisions yet — send a tenant message.</li></ol>
+  <div class="workspace">
+    <div class="primary-stack">
+      <section class="card compose-card" aria-labelledby="request-label">
+        <label class="card-label" id="request-label" for="prompt">Tenant maintenance request</label>
+        <div class="prompt-wrap">
+          <textarea id="prompt" name="prompt" maxlength="4000" rows="5" aria-describedby="prompt-help prompt-error" placeholder="Example: The kitchen sink in apartment 4B has been clogged since yesterday and the water drains very slowly."></textarea>
+          <span class="counter" id="counter" aria-hidden="true">0 / 4000</span>
+        </div>
+        <p class="validation" id="prompt-error" role="alert" hidden></p>
+        <div class="compose-actions">
+          <p class="key-hint" id="prompt-help"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to run</p>
+          <button class="run-button" id="run-button" type="button">Run Agent</button>
+        </div>
+      </section>
+
+      <section class="card result-card" id="result-card" data-state="empty" aria-labelledby="result-title">
+        <div class="result-head">
+          <div>
+            <p class="result-kicker" id="result-kicker">Agent response</p>
+            <h2 id="result-title">Ready when you are</h2>
+          </div>
+          <span class="result-meta" id="result-meta"></span>
+        </div>
+        <div class="result-body" id="result-body">
+          <p class="result-empty">Your final response will appear here. The complete model trace stays available below for inspection.</p>
+        </div>
+      </section>
+
+      <details class="card trace-shell" id="trace-shell">
+        <summary>
+          <span class="trace-title"><strong>Technical trace</strong><span>Every LLM prompt and response, in chronological order</span></span>
+          <span class="trace-count" id="trace-count">0 calls</span>
+        </summary>
+        <ol class="trace-list" id="trace-list"><li class="trace-empty">Run the agent to inspect its model calls.</li></ol>
+      </details>
     </div>
-  </aside>
+
+    <aside class="card examples" aria-labelledby="examples-title">
+      <h2 id="examples-title">Try a scenario</h2>
+      <p class="examples-intro">Choose one to place it in the request box. Nothing runs until you press the button.</p>
+      <div class="example-list" id="example-list">
+        <button class="example" type="button" data-tone="normal" data-prompt="The kitchen sink is clogged and water drains very slowly. Apartment 4B."><span class="example-kind">Normal · Routine</span><span class="example-text">Slow kitchen drain in 4B</span></button>
+        <button class="example" type="button" data-tone="ambiguous" data-prompt="There is a problem in the bathroom of apartment 7A."><span class="example-kind">Ambiguous · Needs details</span><span class="example-text">Vague bathroom problem in 7A</span></button>
+        <button class="example" type="button" data-tone="urgent" data-prompt="There has been no heat since yesterday in apartment 12C."><span class="example-kind">Urgent</span><span class="example-text">No heat since yesterday in 12C</span></button>
+        <button class="example" type="button" data-tone="emergency" data-prompt="I smell gas in the kitchen of apartment 3F."><span class="example-kind">Emergency</span><span class="example-text">Gas odor in the kitchen of 3F</span></button>
+      </div>
+      <p class="scope-note"><strong>One-shot triage:</strong> this demo does not preserve follow-up conversations, make real bookings, or notify a manager or contractor. If anyone is in immediate danger, contact local emergency services.</p>
+    </aside>
+  </div>
 </main>
 
-<footer>Course demo — Introduction to Modern AI Agents · Aviv Fedida &amp; Murad Rahimli. Not a substitute for emergency services: if you are in danger, call your local emergency number.</footer>
+<footer>Maintenance Copilot is a course project by Aviv Fedida and Murad Rahimli. Retrieved guidance is informational and is not legal advice.</footer>
+
+<div id="announcer" class="skip-link" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
 "use strict";
+
 const API_URL = "/api/execute";
+const MAX_PROMPT_LENGTH = 4000;
+const REQUEST_TIMEOUT_MS = 75000;
 
-const state = { caseState: null, steps: [], busy: false };
+const promptEl = document.getElementById("prompt");
+const runButton = document.getElementById("run-button");
+const counterEl = document.getElementById("counter");
+const errorEl = document.getElementById("prompt-error");
+const resultCard = document.getElementById("result-card");
+const resultKicker = document.getElementById("result-kicker");
+const resultTitle = document.getElementById("result-title");
+const resultMeta = document.getElementById("result-meta");
+const resultBody = document.getElementById("result-body");
+const traceShell = document.getElementById("trace-shell");
+const traceCount = document.getElementById("trace-count");
+const traceList = document.getElementById("trace-list");
+const announcer = document.getElementById("announcer");
 
-const $ = (id) => document.getElementById(id);
-const messagesEl = $("messages"), inputEl = $("input"), sendBtn = $("sendBtn");
+let busy = false;
+let lastPrompt = "";
+let elapsedTimer = null;
+let startedAt = 0;
 
-const STATUS_LABELS = {
-  new: "New", needs_info: "Waiting for tenant info", awaiting_tenant: "Awaiting tenant choice",
-  scheduled: "Scheduled", escalated: "Escalated to manager", resolved: "Resolved",
-};
-
-/* ---------- chat rendering (XSS-safe: textContent only) ---------- */
-function addBubble(kind, text) {
-  const div = document.createElement("div");
-  div.className = "bubble " + kind;
-  const who = document.createElement("span");
-  who.className = "who";
-  who.textContent = kind === "tenant" ? "Tenant" : kind === "copilot" ? "Maintenance Copilot" : "Error";
-  const body = document.createElement("span");
-  body.textContent = text;
-  div.append(who, body);
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+function announce(message) {
+  announcer.textContent = "";
+  window.setTimeout(() => { announcer.textContent = message; }, 20);
 }
 
-let typingEl = null;
-function showTyping() {
-  typingEl = document.createElement("div");
-  typingEl.className = "typing";
-  typingEl.innerHTML = "<i></i><i></i><i></i>";
-  typingEl.setAttribute("aria-label", "Copilot is thinking");
-  messagesEl.appendChild(typingEl);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-function hideTyping() { if (typingEl) { typingEl.remove(); typingEl = null; } }
-
-/* ---------- work-order ticket ---------- */
-function setField(id, value) { $(id).textContent = value || "—"; }
-
-function renderTicket() {
-  const c = state.caseState;
-  if (!c) return;
-  $("caseChip").textContent = c.case_id || "no open case";
-  const pill = $("statusPill");
-  pill.dataset.s = c.status || "new";
-  pill.textContent = STATUS_LABELS[c.status] || c.status || "New";
-
-  setField("fCase", c.case_id);
-  setField("fUnit", c.unit);
-  setField("fCat", c.issue_category);
-  setField("fCode", c.problem_code);
-  setField("fUrg", c.urgency);
-  setField("fTrade", c.vendor_trade);
-  setField("fSummary", c.summary);
-  setField("fMissing", (c.missing_info || []).join(", "));
-
-  const stamp = $("stamp");
-  if (c.urgency) {
-    stamp.textContent = c.urgency;
-    stamp.dataset.u = c.urgency;
-    stamp.classList.remove("show");
-    void stamp.offsetWidth;           // restart the stamp animation
-    stamp.classList.add("show");
-  } else {
-    stamp.classList.remove("show");
-    stamp.textContent = "";
+function updateCounter() {
+  counterEl.textContent = promptEl.value.length + " / " + MAX_PROMPT_LENGTH;
+  if (errorEl.textContent) {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+    promptEl.removeAttribute("aria-invalid");
   }
-
-  const sb = $("safetyBanner");
-  if (c.safety_flag) {
-    sb.hidden = false;
-    sb.textContent = "⚠ Safety pre-filter: " + (c.safety_reason || "hazard flagged") +
-      (c.escalation_reason ? " · " + c.escalation_reason : "");
-  } else { sb.hidden = true; }
-
-  const ab = $("apptBanner");
-  if (c.appointment) {
-    ab.hidden = false;
-    ab.textContent = "✓ Booked: " + c.appointment.vendor_name + " — " + c.appointment.label;
-  } else { ab.hidden = true; }
 }
 
-/* ---------- agent trace ---------- */
-function renderTrace() {
-  const traceEl = $("trace");
-  traceEl.innerHTML = "";
-  const entries = state.steps || [];
-  if (!entries.length) {
-    const li = document.createElement("li");
-    li.className = "trace-empty";
-    li.textContent = "No decisions yet — send a tenant message.";
-    traceEl.appendChild(li);
+function showValidation(message) {
+  errorEl.textContent = message;
+  errorEl.hidden = false;
+  promptEl.setAttribute("aria-invalid", "true");
+  promptEl.focus();
+  announce(message);
+}
+
+function formatDuration(milliseconds) {
+  const seconds = milliseconds / 1000;
+  return seconds < 10 ? seconds.toFixed(1) + "s" : Math.round(seconds) + "s";
+}
+
+function setLoading() {
+  resultCard.dataset.state = "loading";
+  resultCard.setAttribute("aria-busy", "true");
+  resultKicker.textContent = "Agent running";
+  resultTitle.textContent = "Reviewing the request";
+  resultBody.replaceChildren();
+  const spinner = document.createElement("span");
+  spinner.className = "spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const status = document.createElement("p");
+  status.className = "result-empty";
+  status.textContent = "Checking safety, classification, and the next operational step…";
+  resultBody.append(spinner, status);
+  resultMeta.textContent = "0.0s";
+  startedAt = performance.now();
+  elapsedTimer = window.setInterval(() => {
+    resultMeta.textContent = formatDuration(performance.now() - startedAt);
+  }, 100);
+  announce("Maintenance Copilot is reviewing the request.");
+}
+
+function stopTimer() {
+  if (elapsedTimer !== null) {
+    window.clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+}
+
+function showSuccess(responseText, steps, elapsed) {
+  resultCard.dataset.state = "success";
+  resultCard.setAttribute("aria-busy", "false");
+  resultKicker.textContent = "Agent response";
+  resultTitle.textContent = "Recommended next step";
+  resultMeta.textContent = formatDuration(elapsed);
+  resultBody.replaceChildren();
+  const response = document.createElement("p");
+  response.className = "result-text";
+  response.textContent = responseText;
+  resultBody.appendChild(response);
+  renderTrace(steps);
+  announce("Agent response ready. " + steps.length + " model " + (steps.length === 1 ? "call" : "calls") + " recorded.");
+}
+
+function showError(message, steps, elapsed) {
+  resultCard.dataset.state = "error";
+  resultCard.setAttribute("aria-busy", "false");
+  resultKicker.textContent = "Request not completed";
+  resultTitle.textContent = "The agent could not finish";
+  resultMeta.textContent = formatDuration(elapsed);
+  resultBody.replaceChildren();
+
+  const response = document.createElement("p");
+  response.className = "result-text";
+  response.textContent = message;
+  const actions = document.createElement("div");
+  actions.className = "error-actions";
+  const retry = document.createElement("button");
+  retry.className = "secondary-button";
+  retry.type = "button";
+  retry.textContent = "Retry request";
+  retry.addEventListener("click", () => runAgent(lastPrompt));
+  actions.appendChild(retry);
+  resultBody.append(response, actions);
+  renderTrace(steps);
+  announce("The request could not be completed. Your typed message has been preserved.");
+}
+
+function stringifyValue(value) {
+  if (typeof value === "string") return value;
+  try { return JSON.stringify(value, null, 2); }
+  catch (_) { return String(value); }
+}
+
+function makeTraceSection(label, value) {
+  const section = document.createElement("section");
+  section.className = "trace-section";
+  const head = document.createElement("div");
+  head.className = "trace-section-head";
+  const title = document.createElement("h4");
+  title.textContent = label;
+  const copy = document.createElement("button");
+  copy.className = "copy-button";
+  copy.type = "button";
+  copy.textContent = "Copy";
+  const text = stringifyValue(value);
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      copy.textContent = "Copied";
+      window.setTimeout(() => { copy.textContent = "Copy"; }, 1400);
+    } catch (_) {
+      copy.textContent = "Select text";
+    }
+  });
+  const content = document.createElement("pre");
+  content.className = "code-value";
+  content.textContent = text;
+  head.append(title, copy);
+  section.append(head, content);
+  return section;
+}
+
+function summarizeResponse(response) {
+  if (!response || typeof response !== "object") return "Model response";
+  if (response.error) return "Error recorded";
+  const tools = Array.isArray(response.tool_calls) ? response.tool_calls.length : 0;
+  const usage = response.token_usage && typeof response.token_usage === "object" ? response.token_usage : null;
+  const tokens = usage && (usage.total_tokens ?? usage.total) ? (usage.total_tokens ?? usage.total) + " tokens" : "";
+  if (tools && tokens) return tools + " tool " + (tools === 1 ? "call" : "calls") + " · " + tokens;
+  if (tools) return tools + " tool " + (tools === 1 ? "call" : "calls");
+  return tokens || "Model response";
+}
+
+function renderTrace(steps) {
+  const safeSteps = Array.isArray(steps) ? steps : [];
+  traceCount.textContent = safeSteps.length + " " + (safeSteps.length === 1 ? "call" : "calls");
+  traceList.replaceChildren();
+  if (!safeSteps.length) {
+    const empty = document.createElement("li");
+    empty.className = "trace-empty";
+    empty.textContent = "No LLM calls were recorded. A deterministic safety response or an early system failure may have bypassed the model.";
+    traceList.appendChild(empty);
     return;
   }
-  entries.forEach((e, index) => {
-    const li = document.createElement("li");
+
+  safeSteps.forEach((step, index) => {
+    const item = document.createElement("li");
     const details = document.createElement("details");
-    details.open = index === entries.length - 1;
+    details.className = "trace-step";
+    details.open = index === 0;
     const summary = document.createElement("summary");
-    summary.textContent = String(index + 1).padStart(2, "0") + " · " + (e.module || "LLM call");
-    const body = document.createElement("pre");
-    body.textContent = JSON.stringify({ prompt: e.prompt, response: e.response }, null, 2);
+    const moduleName = document.createElement("span");
+    moduleName.className = "module-name";
+    moduleName.textContent = step && step.module ? step.module : "Unknown module";
+    const meta = document.createElement("span");
+    meta.className = "step-meta";
+    meta.textContent = summarizeResponse(step && step.response);
+    summary.append(moduleName, meta);
+
+    const body = document.createElement("div");
+    body.className = "trace-step-body";
+    const prompt = step && step.prompt && typeof step.prompt === "object" ? step.prompt : {};
+    const modelResponse = step && step.response && typeof step.response === "object" ? step.response : {};
+    body.append(
+      makeTraceSection("System prompt", prompt.system_prompt ?? ""),
+      makeTraceSection("User prompt", prompt.user_prompt ?? ""),
+      makeTraceSection("Model response", modelResponse.content ?? modelResponse),
+      makeTraceSection("Tool calls", modelResponse.tool_calls ?? []),
+      makeTraceSection("Token usage", modelResponse.token_usage ?? "Not reported"),
+      makeTraceSection("Latency", step && step.latency_ms != null ? step.latency_ms + " ms" : "Not reported"),
+    );
+    if (modelResponse.error) body.append(makeTraceSection("Error", modelResponse.error));
+    body.append(makeTraceSection("Complete response JSON", step ? step.response : null));
     details.append(summary, body);
-    li.append(details);
-    traceEl.appendChild(li);
+    item.appendChild(details);
+    traceList.appendChild(item);
   });
-  traceEl.parentElement.scrollTop = traceEl.parentElement.scrollHeight;
 }
 
-/* ---------- send flow ---------- */
-async function send() {
-  const text = inputEl.value.trim();
-  if (!text || state.busy) return;
-  state.busy = true;
-  sendBtn.disabled = true;
-  inputEl.value = "";
-  autoGrow();
+function publicErrorMessage(error, timedOut) {
+  if (timedOut) return "The agent took too long to respond. Please retry in a moment. Your request is still in the text box.";
+  if (error && error.message === "network") return "The service could not be reached. Check your connection and retry; your request is still in the text box.";
+  const detail = error && error.message ? error.message.toLowerCase() : "";
+  if (detail.includes("llmod") || detail.includes("language model") || detail.includes("provider")) {
+    return "The language-model service is not available right now. Please retry later; your request is still in the text box.";
+  }
+  if (detail.includes("database") || detail.includes("supabase") || detail.includes("persist")) {
+    return "The case-record service is not available right now, so this request was not completed. Please retry later.";
+  }
+  return "The agent could not complete this request. Please retry in a moment; your request is still in the text box.";
+}
 
-  addBubble("tenant", text);
-  showTyping();
+async function runAgent(prefilledPrompt) {
+  if (busy) return;
+  const prompt = (typeof prefilledPrompt === "string" ? prefilledPrompt : promptEl.value).trim();
+  if (!prompt) {
+    showValidation("Describe the maintenance problem before running the agent.");
+    return;
+  }
 
+  lastPrompt = prompt;
+  if (promptEl.value.trim() !== prompt) promptEl.value = prompt;
+  updateCounter();
+  busy = true;
+  runButton.disabled = true;
+  runButton.textContent = "Running…";
+  setLoading();
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+
+  let steps = [];
   try {
-    const res = await fetch(API_URL, {
+    const response = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: text }),
+      body: JSON.stringify({ prompt }),
+      signal: controller.signal,
     });
-    let data = null;
-    try { data = await res.json(); } catch (_) { /* non-JSON error body */ }
-    if (!res.ok || !data || data.status !== "ok") {
-      const detail = data && (data.detail || data.error);
-      throw new Error(detail || ("Request failed with status " + res.status));
+    let data;
+    try { data = await response.json(); }
+    catch (_) { throw new Error("The service returned an unreadable response. Please retry."); }
+    steps = Array.isArray(data.steps) ? data.steps : [];
+    if (!response.ok || data.status !== "ok" || typeof data.response !== "string") {
+      throw new Error(typeof data.error === "string" && data.error ? data.error : "The agent could not complete this request. Please retry.");
     }
-    state.steps = data.steps || [];
-    addBubble("copilot", data.response);
-    renderTrace();
-  } catch (err) {
-    addBubble("error", "Couldn't reach the agent: " + err.message + " — check the server and your API keys, then try again.");
+    const elapsed = performance.now() - startedAt;
+    stopTimer();
+    showSuccess(data.response, steps, elapsed);
+  } catch (error) {
+    const elapsed = performance.now() - startedAt;
+    stopTimer();
+    if (error instanceof TypeError) error = new Error("network");
+    showError(publicErrorMessage(error, timedOut), steps, elapsed);
   } finally {
-    hideTyping();
-    state.busy = false;
-    sendBtn.disabled = false;
-    inputEl.focus();
+    window.clearTimeout(timeout);
+    busy = false;
+    runButton.disabled = false;
+    runButton.textContent = "Run Agent";
   }
 }
 
-/* ---------- reset ---------- */
-function resetCase() {
-  state.caseState = null;
-  state.steps = [];
-  messagesEl.innerHTML = "";
-  renderTrace();
-  greet();
-}
-
-function greet() {
-  addBubble("copilot",
-    "Hi! I'm Maintenance Copilot, the maintenance assistant for this building. " +
-    "Describe the problem in your own words — and include your apartment number so I can open a work order right away.");
-}
-
-/* ---------- wiring ---------- */
-sendBtn.addEventListener("click", send);
-inputEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+promptEl.addEventListener("input", updateCounter);
+promptEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    runAgent();
+  }
 });
-function autoGrow() {
-  inputEl.style.height = "auto";
-  inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
-}
-inputEl.addEventListener("input", autoGrow);
+runButton.addEventListener("click", () => runAgent());
 
-$("chips").addEventListener("click", (e) => {
-  const chip = e.target.closest(".chip");
-  if (!chip) return;
-  inputEl.value = chip.textContent;
-  autoGrow();
-  inputEl.focus();
+document.getElementById("example-list").addEventListener("click", (event) => {
+  const example = event.target.closest(".example");
+  if (!example) return;
+  promptEl.value = example.dataset.prompt || "";
+  updateCounter();
+  promptEl.focus();
+  announce("Example copied to the maintenance request field.");
 });
 
-$("resetBtn").addEventListener("click", () => {
-  if (!state.steps.length || confirm("Start a new case? The current conversation will be cleared.")) resetCase();
-});
-
-greet();
+updateCounter();
 </script>
 </body>
 </html>

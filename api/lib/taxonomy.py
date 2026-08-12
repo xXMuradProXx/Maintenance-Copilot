@@ -14,6 +14,7 @@ import re
 from typing import Any, Dict, List
 
 from .repositories import DatabaseOperationError, TaxonomyRepository
+from .supabase_client import SupabaseConfigurationError
 
 LOCAL_FALLBACK_TAXONOMY: List[Dict[str, Any]] = [
     # --- HEAT / HOT WATER ---
@@ -243,7 +244,7 @@ def search(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
                 top_k=min(max(top_k * 4, 10), 20),
             ):
                 database_rows.append({**row, "match_basis": probe})
-    except DatabaseOperationError:
+    except (DatabaseOperationError, SupabaseConfigurationError):
         return _search_local(query, top_k)
 
     grouped: Dict[tuple, Dict[Any, Dict[str, Any]]] = {}

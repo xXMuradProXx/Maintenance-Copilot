@@ -220,6 +220,8 @@ def _persist_completed_execution(
 				"source_endpoint": "/api/execute",
 				"decision_trace": case.trace,
 				"llm_step_count": len(case.llm_steps),
+				"taxonomy_urgency": case.taxonomy_urgency,
+				"policy_flags": case.policy_flags,
 			},
 		},
 	)

@@ -7,6 +7,7 @@ to "today", so the demo always has bookable slots.
 """
 
 from datetime import datetime, timedelta
+import re
 from typing import Any, Dict, List, Optional
 
 VENDORS: List[Dict[str, Any]] = [
@@ -64,21 +65,28 @@ def find_slots(trade: str) -> Dict[str, Any]:
 
     now = datetime.now()
     slots: List[Dict[str, Any]] = []
-    for v in matches:
-        windows = _WINDOWS[:2] if len(matches) > 1 else _WINDOWS
-        for days, start, end in windows:
-            day = now + timedelta(days=days)
-            slots.append(
-                {
-                    "slot_id": f"{v['id']}-{day.strftime('%Y%m%d')}-{start:02d}",
-                    "vendor_id": v["id"],
-                    "vendor_name": v["name"],
-                    "trade": canonical,
-                    "date": day.strftime("%Y-%m-%d"),
-                    "label": f"{day.strftime('%A, %b %d')}, {start}:00\u2013{end}:00",
-                }
-            )
-    return {"ok": True, "trade": canonical, "slots": slots}
+    for index, (days, start, end) in enumerate(_WINDOWS):
+        vendor = matches[index % len(matches)]
+        day = now + timedelta(days=days)
+        slots.append(
+            {
+                "option": index + 1,
+                "slot_id": f"{vendor['id']}-{day.strftime('%Y%m%d')}-{start:02d}",
+                "vendor_id": vendor["id"],
+                "vendor_name": vendor["name"],
+                "trade": canonical,
+                "date": day.strftime("%Y-%m-%d"),
+                "label": f"{day.strftime('%A, %b %d')}, {start}:00\u2013{end}:00",
+                "source": "simulated_vendor_directory",
+            }
+        )
+    return {
+        "ok": True,
+        "trade": canonical,
+        "simulation": True,
+        "note": "Generated from the simulated vendor directory; these are not live calendar holds.",
+        "slots": slots,
+    }
 
 
 def resolve_slot(slot_id: str, offered_slots: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -87,3 +95,58 @@ def resolve_slot(slot_id: str, offered_slots: List[Dict[str, Any]]) -> Optional[
         if slot.get("slot_id") == slot_id:
             return slot
     return None
+
+
+def resolve_explicit_selection(
+    message: str,
+    offered_slots: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Resolve an explicit, unambiguous selection from the latest tenant turn."""
+    slots = offered_slots or []
+    text = " ".join((message or "").lower().split())
+    if not text or not slots:
+        return None
+
+    direct = [
+        slot
+        for slot in slots
+        if str(slot.get("slot_id", "")).lower() in text
+    ]
+    if len(direct) == 1:
+        return direct[0]
+
+    labels = [
+        slot
+        for slot in slots
+        if " ".join(str(slot.get("label", "")).lower().split()) in text
+    ]
+    if len(labels) == 1:
+        return labels[0]
+
+    ordinal_words = {"first": 1, "second": 2, "third": 3}
+    requested_options = {
+        option
+        for word, option in ordinal_words.items()
+        if re.search(rf"\b{word}\b", text)
+    }
+    requested_options.update(
+        int(match)
+        for match in re.findall(r"\b(?:option|slot)\s*#?([1-3])\b", text)
+    )
+    if len(requested_options) == 1:
+        option = requested_options.pop()
+        matches = [slot for slot in slots if slot.get("option") == option]
+        if len(matches) == 1:
+            return matches[0]
+    return None
+
+
+def slot_is_expired(slot: Dict[str, Any], now: Optional[datetime] = None) -> bool:
+    """Return whether a demo slot's ending time is already in the past."""
+    try:
+        date_value = str(slot["date"])
+        end_hour = int(str(slot["label"]).rsplit("–", 1)[1].split(":", 1)[0])
+        ends_at = datetime.strptime(date_value, "%Y-%m-%d").replace(hour=end_hour)
+    except (KeyError, TypeError, ValueError, IndexError):
+        return True
+    return ends_at <= (now or datetime.now())

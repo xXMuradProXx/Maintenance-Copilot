@@ -60,6 +60,7 @@ class LlmTraceTests(unittest.TestCase):
         case = CaseState()
         with (
             patch.object(agent_module.rag, "retrieve", return_value={"results": []}),
+            patch.object(agent_module.taxonomy, "search", return_value=[]),
             patch.object(agent_module, "_call_llm", side_effect=TimeoutError("offline")),
         ):
             reply, result = agent_module.run_case(
@@ -141,20 +142,18 @@ class LlmTraceTests(unittest.TestCase):
 
     def test_simulated_actions_do_not_claim_notifications_were_sent(self) -> None:
         case = CaseState()
-        slot = {
-            "slot_id": "PL-01-TEST-10",
-            "vendor_name": "Demo Plumber",
-            "trade": "plumber",
-        }
+        slot = agent_module.vendors.find_slots("plumber")["slots"][0]
         case.offered_slots = [slot]
 
         booking = agent_module._dispatch_tool(
             "book_appointment",
             {"slot_id": slot["slot_id"]},
             case,
+            f"I choose {slot['slot_id']}",
         )
         self.assertIn("no contractor was contacted", booking["note"].lower())
 
+        case.policy_flags = ["legal_threat"]
         escalation = agent_module._dispatch_tool(
             "escalate_to_manager",
             {"reason": "manual review required"},

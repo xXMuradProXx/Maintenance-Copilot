@@ -20,7 +20,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
-from . import rag, safety, taxonomy, vendors
+from . import rag, safety, taxonomy, tenant_guidance, vendors
 from .llm_client import get_llmod_client
 from .state import (
     STATUS_AWAITING_TENANT,
@@ -65,6 +65,22 @@ def _extract_unit(message: str) -> str | None:
     return match.group(1).upper() if match else None
 
 
+def _detect_policy_flags(message: str) -> List[str]:
+    """Detect manager-review gates from tenant text, independently of the LLM."""
+    text = (message or "").lower()
+    flags = []
+    patterns = (
+        ("legal_threat", r"\b(lawsuit|lawyer|attorney|sue|legal action|housing court)\b"),
+        ("vulnerable_tenant", r"\b(infant|newborn|baby|elderly|disabled|pregnant|wheelchair|oxygen tank)\b"),
+        ("repeat_unresolved", r"\b(still not fixed|not fixed yet|again|third time|fourth time|keeps happening)\b"),
+        ("out_of_scope", r"\b(write (an? )?email|book (a )?flight|homework|stock price|weather forecast)\b"),
+    )
+    for flag, pattern in patterns:
+        if re.search(pattern, text):
+            flags.append(flag)
+    return flags
+
+
 def _get_client():
     global _client
     if _client is None:
@@ -76,41 +92,55 @@ def _get_client():
 
 SYSTEM_PROMPT = """You are "Maintenance Copilot", the supervisor agent for a small property-management \
 company. You triage incoming tenant maintenance messages and drive each case to exactly one next \
-operational state: scheduled, waiting on the tenant, escalated to the human manager, or resolved.
+operational state: scheduled, waiting on the tenant, escalated to the human manager, or resolved. \
+Reduce routine manager work while staying inside deterministic safety gates; manager review is an \
+exception, not the default.
 
 Follow this decision stack, in order:
 1. CLASSIFY — call classify_issue to map the tenant's words to a taxonomy problem code, then persist \
 your pick with record_work_order (call it again whenever your understanding changes).
-2. PRIORITIZE — urgency comes from the taxonomy and the safety pre-filter (EMERGENCY > URGENT > \
-ROUTINE). Call retrieve_guidance when landlord obligations or urgency are unclear (heat/hot-water \
-rules, hazard classes, mold, pests, security).
+2. PRIORITIZE — the taxonomy urgency is a municipal repair-priority label, not proof of immediate \
+life-safety danger. Persist it as taxonomy_urgency. Deterministic policy sets operational urgency. \
+Call retrieve_guidance only when an official obligation or policy fact is needed; it is not a source \
+for ordinary DIY repair instructions.
 3. REFLECT — check the autonomy policy below before acting.
-4. ACT — ask the tenant, offer appointment windows, book, or escalate.
+4. ACT — call get_tenant_guidance for low-risk containment steps and routing questions, then ask the \
+tenant and offer simulated appointment windows in the same turn when the trade is clear.
 
 AUTONOMY POLICY (hard rules):
-- EMERGENCY urgency: call escalate_to_manager, give the tenant clear immediate-safety instructions, \
-and do NOT schedule a vendor.
-- For ROUTINE and URGENT issues with a clear classification, call find_vendor_slots and offer the \
-tenant the returned windows (quote the labels exactly).
+- Only a force-escalation result from SafetyPreFilter is an automatic emergency manager handoff. \
+That path runs before you. Never escalate merely because the HPD taxonomy says EMERGENCY.
+- Call escalate_to_manager only for an evidence-backed gate in CURRENT SHARED CASE STATE: a safety \
+flag that cannot be handled through urgent routing, legal threat, vulnerable tenant, repeat unresolved \
+complaint, out-of-scope request, verified tool conflict, or exhausted loop. The tool rejects unsupported escalation.
+- For an ordinary clogged toilet with no stated overflow or sewage, do not escalate. Give the safe \
+steps from get_tenant_guidance; ask whether the bowl is overflowing/rising and whether another toilet \
+works; and offer simulated plumber windows in the same reply.
+- For other ROUTINE and URGENT issues with a clear trade, call find_vendor_slots and offer 2–3 \
+returned windows. Include vendor name, exact label, and an option number so the tenant can select it.
 - Call book_appointment ONLY with a slot_id that was previously offered in this case AND that the \
-tenant explicitly chose in their latest message. Never book on a guess.
+tenant explicitly chose in their latest message by slot ID, exact label, or unambiguous option number. \
+The tool independently verifies the selection. Never book on a guess.
 - Scheduling is a demo simulation: slots are generated, appointments are recorded only in case \
 state, and no vendor calendar is reserved or person notified. Say this plainly to the tenant.
-- If the apartment/unit number or the problem's location is missing and needed, call ask_tenant and \
-ask at most two short questions in your reply.
-- Never invent vendors, time slots, laws, or policies. Ground any legal or urgency claim in \
-retrieve_guidance results and mention the source title briefly (e.g., "per the heat and hot water \
-policy"). If retrieval is unavailable, say the manager will confirm the policy detail.
+- Ask at most two short questions that materially change safety, urgency, or routing. When the trade \
+is clear, asking questions does not prevent you from offering simulated slots in that turn.
+- Give only the reversible, low-risk steps returned by get_tenant_guidance. Do not tell a tenant to \
+dismantle a fixture, use chemicals, handle electrical parts, or perform a hazardous repair.
+- Never invent vendors, time slots, laws, or policies. Ground legal or policy claims in \
+retrieve_guidance results and mention the source title briefly. If retrieval is unavailable, say the \
+policy detail could not be confirmed; do not escalate a routine repair for that reason alone.
 - If the tenant confirms the problem is fixed, call mark_resolved.
-- Escalate to the manager when: confidence is low, tools conflict, the tenant mentions legal action, \
-a vulnerable person, or a repeat unresolved complaint, or the request is outside maintenance.
+- Do not use low confidence as a shortcut to manager review. Ask focused questions first. Escalate \
+only if uncertainty remains after questions or an allowed gate requires human judgment.
 
-REPLY STYLE (tenant-facing): warm, plain language, 2–6 sentences, no markdown headings, no internal \
-jargon (never mention tools, taxonomy rows, or "the LLM"). Confirm what you understood, state what \
-happens next and who does what. Answer in the tenant's own language if they didn't write in English.
+REPLY STYLE (tenant-facing): warm, plain language, 3–8 sentences, no markdown headings, no internal \
+jargon (never mention tools, taxonomy rows, or "the LLM"). Confirm what you understood, give safe \
+steps, ask necessary questions, and state what happens next. Answer in the tenant's own language if \
+they didn't write in English.
 
-STOP: once this turn reaches a stop condition (question asked, slots offered, appointment booked, \
-escalated, or resolved), write the tenant reply and stop calling tools."""
+STOP: once this turn reaches a stop condition (questions asked with useful next steps, slots offered, \
+appointment booked, escalated, or resolved), write the tenant reply and stop calling tools."""
 
 EMERGENCY_PROMPT = """EMERGENCY MODE. The rule-based safety pre-filter force-escalated this case.
 Reason: {reason}
@@ -124,6 +154,16 @@ Do not offer or schedule any appointments. Do not add any other questions.
 
 Relevant policy snippets (optional background, cite the title briefly if used):
 {citations}"""
+
+ROUTINE_RESPONSE_PROMPT = """You are the tenant-facing voice of Maintenance Copilot.
+Rewrite the approved operational draft into warm, concise plain language while preserving every:
+- safety or containment instruction;
+- question;
+- numbered vendor option, vendor name, and time label;
+- statement that scheduling is only a simulation and no calendar/person was contacted.
+
+Do not add a manager escalation, legal claim, diagnosis, repair instruction, vendor, or time. Do not
+say anything was booked. Return only the tenant-facing reply, without a heading or markdown."""
 
 
 # ----------------------------------------------------------------------- tools
@@ -157,12 +197,21 @@ TOOLS: List[Dict[str, Any]] = [
                     "issue_category": {"type": "string"},
                     "problem_code": {"type": "string"},
                     "urgency": {"type": "string", "enum": ["EMERGENCY", "URGENT", "ROUTINE"]},
+                    "taxonomy_urgency": {"type": "string", "enum": ["EMERGENCY", "URGENT", "ROUTINE"], "description": "Copy the chosen taxonomy candidate's source urgency here; deterministic policy normalizes operational urgency."},
                     "vendor_trade": {"type": "string", "description": "e.g. plumber, electrician, hvac, exterminator, locksmith, handyman, appliance, remediation, glazier, elevator, contractor."},
                     "unit": {"type": "string", "description": "Apartment/unit number if the tenant stated it."},
                     "missing_info": {"type": "array", "items": {"type": "string"}, "description": "Facts still needed from the tenant."},
                 },
                 "required": ["summary", "issue_category", "problem_code", "urgency", "vendor_trade"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_tenant_guidance",
+            "description": "Return deterministic, low-risk containment steps and up to two questions that change safety, urgency, or routing. Use this for practical tenant guidance; do not invent DIY steps.",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -242,7 +291,22 @@ TOOLS: List[Dict[str, Any]] = [
 ]
 
 
-def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str, Any]:
+def _normalize_operational_urgency(
+    taxonomy_urgency: str | None,
+    safety_flag: bool,
+) -> str:
+    """Map source repair priority without inventing a life-safety emergency."""
+    if safety_flag or taxonomy_urgency in {"EMERGENCY", "URGENT"}:
+        return "URGENT"
+    return "ROUTINE"
+
+
+def _dispatch_tool(
+    name: str,
+    args: Dict[str, Any],
+    case: CaseState,
+    latest_message: str = "",
+) -> Dict[str, Any]:
     """Run one tool against the shared case state and return its observation."""
 
     if name == "classify_issue":
@@ -253,12 +317,25 @@ def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str
         case.summary = args.get("summary") or case.summary
         case.issue_category = args.get("issue_category") or case.issue_category
         case.problem_code = args.get("problem_code") or case.problem_code
-        case.urgency = args.get("urgency") or case.urgency
+        source_urgency = (
+            args.get("taxonomy_urgency")
+            or args.get("urgency")
+            or case.taxonomy_urgency
+        )
+        if source_urgency in {"EMERGENCY", "URGENT", "ROUTINE"}:
+            case.taxonomy_urgency = source_urgency
+        case.urgency = _normalize_operational_urgency(
+            case.taxonomy_urgency,
+            case.safety_flag,
+        )
         case.vendor_trade = args.get("vendor_trade") or case.vendor_trade
         if args.get("unit"):
             case.unit = args["unit"]
         case.missing_info = list(args.get("missing_info") or [])
         return {"ok": True, "work_order": case.snapshot()}
+
+    if name == "get_tenant_guidance":
+        return {"ok": True, **tenant_guidance.plan_for(latest_message, case)}
 
     if name == "retrieve_guidance":
         result = rag.retrieve(args.get("query", ""))
@@ -277,6 +354,13 @@ def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str
         return result
 
     if name == "find_vendor_slots":
+        if case.status == STATUS_ESCALATED or (
+            case.safety_flag and case.urgency == "EMERGENCY"
+        ):
+            return {
+                "ok": False,
+                "error": "Emergency or escalated cases cannot be scheduled.",
+            }
         result = vendors.find_slots(args.get("trade", case.vendor_trade or ""))
         if result.get("ok"):
             case.offered_slots = result["slots"]
@@ -285,28 +369,76 @@ def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str
         return result
 
     if name == "book_appointment":
-        slot = vendors.resolve_slot(args.get("slot_id", ""), case.offered_slots)
-        if slot is None:
+        if case.status == STATUS_ESCALATED or (
+            case.safety_flag and case.urgency == "EMERGENCY"
+        ):
+            return {
+                "ok": False,
+                "error": "Emergency or escalated cases cannot be scheduled.",
+            }
+        requested = vendors.resolve_slot(args.get("slot_id", ""), case.offered_slots)
+        selected = vendors.resolve_explicit_selection(
+            latest_message,
+            case.offered_slots,
+        )
+        if requested is None:
             return {
                 "ok": False,
                 "error": "slot_id was never offered in this case. Offer slots with "
                          "find_vendor_slots and let the tenant choose first.",
             }
-        case.appointment = slot
+        if selected is None or selected.get("slot_id") != requested.get("slot_id"):
+            return {
+                "ok": False,
+                "error": "The latest tenant message did not explicitly and unambiguously select this offered slot.",
+            }
+        if vendors.slot_is_expired(requested):
+            return {
+                "ok": False,
+                "error": "The selected demo slot has expired. Generate and offer new slots.",
+            }
+        if case.appointment is not None:
+            if case.appointment.get("slot_id") == requested.get("slot_id"):
+                return {
+                    "ok": True,
+                    "appointment": case.appointment,
+                    "idempotent": True,
+                    "note": "This demo option was already selected; no calendar was reserved and no contractor was contacted.",
+                }
+            return {
+                "ok": False,
+                "error": "A different demo option was already selected for this case.",
+            }
+        case.appointment = requested
         case.status = STATUS_SCHEDULED
         return {
             "ok": True,
-            "appointment": slot,
-            "note": "Appointment recorded in demo state only; no contractor was contacted.",
+            "appointment": requested,
+            "note": "Demo appointment selected in case state only; no calendar was reserved and no contractor was contacted.",
         }
 
     if name == "ask_tenant":
         case.missing_info = list(args.get("missing_fields") or []) or case.missing_info
-        if case.status not in (STATUS_ESCALATED,):
-            case.status = STATUS_NEEDS_INFO
+        if case.status != STATUS_ESCALATED:
+            case.status = (
+                STATUS_AWAITING_TENANT if case.offered_slots else STATUS_NEEDS_INFO
+            )
         return {"ok": True, "status": case.status}
 
     if name == "escalate_to_manager":
+        allowed_flags = {
+            "legal_threat",
+            "vulnerable_tenant",
+            "repeat_unresolved",
+            "out_of_scope",
+            "tool_conflict",
+            "loop_exhausted",
+        }
+        if not allowed_flags.intersection(case.policy_flags):
+            return {
+                "ok": False,
+                "error": "Manager escalation blocked: no deterministic escalation gate is present. Ask focused questions or route to a simulated vendor instead.",
+            }
         case.status = STATUS_ESCALATED
         case.escalation_reason = args.get("reason", "unspecified")
         return {
@@ -324,17 +456,26 @@ def _dispatch_tool(name: str, args: Dict[str, Any], case: CaseState) -> Dict[str
 
 # ------------------------------------------------------------------- main loop
 
-def _context_message(case: CaseState, safety_result: Dict[str, Any]) -> Dict[str, str]:
+def _context_message(
+    case: CaseState,
+    safety_result: Dict[str, Any],
+    guidance_plan: Dict[str, Any],
+) -> Dict[str, str]:
     flag_note = "none"
     if safety_result["flag"]:
-        flag_note = (f"FLAGGED — {safety_result['reason']}. Treat as EMERGENCY unless the "
-                     "conversation clearly contradicts it; prefer escalation over scheduling.")
+        flag_note = (
+            f"FLAGGED — {safety_result['reason']}. Treat as urgent and give immediate "
+            "containment guidance. This is not a force-escalation result: route the repair "
+            "unless another deterministic manager-review gate is present."
+        )
     return {
         "role": "system",
         "content": (
             f"Today is {datetime.now().strftime('%A, %Y-%m-%d')}. "
             f"Message channel: {case.channel}.\n"
             f"SAFETY PRE-FILTER: {flag_note}\n"
+            "DETERMINISTIC TENANT GUIDANCE (JSON; use these steps/questions and do not "
+            f"invent additional DIY work): {json.dumps(guidance_plan, ensure_ascii=False)}\n"
             f"CURRENT SHARED CASE STATE (JSON): {json.dumps(case.snapshot(), ensure_ascii=False)}"
         ),
     }
@@ -429,11 +570,209 @@ def _call_llm(
     return response
 
 
+def _guided_operational_reply(message: str, case: CaseState) -> str | None:
+    """Create a useful non-escalation fallback when the model stops too early."""
+    plan = tenant_guidance.plan_for(message, case)
+    questions = list(plan.get("questions") or [])[:2]
+    safe_steps = list(plan.get("safe_steps") or [])
+    trade = plan.get("trade") or case.vendor_trade
+
+    if questions:
+        case.missing_info = [question["field"] for question in questions]
+
+    slot_result: Dict[str, Any] = {"ok": False, "slots": []}
+    if trade and case.status not in {STATUS_ESCALATED, STATUS_RESOLVED}:
+        slot_result = _dispatch_tool(
+            "find_vendor_slots",
+            {"trade": trade},
+            case,
+            message,
+        )
+
+    if not safe_steps and not questions and not slot_result.get("ok"):
+        return None
+
+    issue = plan.get("summary") or case.summary or "maintenance issue"
+    location = f" in apartment {case.unit}" if case.unit else ""
+    parts = [f"Thanks for reporting the {issue}{location}."]
+    if safe_steps:
+        parts.append(" ".join(safe_steps))
+    if questions:
+        parts.append(" ".join(question["question"] for question in questions))
+    if slot_result.get("ok"):
+        options = "; ".join(
+            f"option {slot['option']}: {slot['vendor_name']}, {slot['label']}"
+            for slot in slot_result["slots"][:3]
+        )
+        parts.append(f"I can offer these simulated {trade} windows: {options}.")
+        parts.append(
+            "Reply with the option number you prefer. This is a demonstration only: "
+            "no calendar is reserved and no contractor is contacted."
+        )
+    elif questions:
+        case.status = STATUS_NEEDS_INFO
+    return " ".join(parts)
+
+
+def _routine_reply_is_complete(
+    reply: str,
+    plan: Dict[str, Any],
+    case: CaseState,
+) -> bool:
+    """Reject polished replies that omit an approved operational requirement."""
+    lowered = (reply or "").lower()
+    if not lowered or "manager review" in lowered or "escalat" in lowered:
+        return False
+    if case.unit and case.unit.lower() not in lowered:
+        return False
+    if len(plan.get("questions") or []) > lowered.count("?"):
+        return False
+    required_terms = {
+        "toilet_clog": ("flush", "chemical"),
+        "drain_clog": ("chemical",),
+        "no_heat": ("oven", "heater"),
+        "electrical_failure": ("unplug", "wiring"),
+        "electrical_hazard": ("away", "unplug", "wiring"),
+        "water_leak": ("belongings", "electrical"),
+        "entry_lock": ("force", "secure"),
+    }.get(plan.get("key"), ())
+    if not all(term in lowered for term in required_terms):
+        return False
+    if case.offered_slots:
+        if not all(
+            f"option {slot['option']}" in lowered
+            and slot["vendor_name"].lower() in lowered
+            and slot["label"].lower() in lowered
+            for slot in case.offered_slots[:3]
+        ):
+            return False
+        if "simulat" not in lowered or not any(
+            phrase in lowered
+            for phrase in ("no calendar", "not reserved", "isn't reserved", "is not reserved")
+        ):
+            return False
+    return True
+
+
+def _common_issue_path(
+    message: str,
+    case: CaseState,
+    plan: Dict[str, Any],
+) -> Tuple[str, CaseState]:
+    """Handle a known, low-risk issue with one compact model call at most."""
+    candidates = taxonomy.search(message)
+    top = candidates[0] if candidates else {}
+    case.add_trace(
+        "tool:classify_issue",
+        "observe",
+        json.dumps(top, ensure_ascii=False)[:240],
+    )
+    _dispatch_tool(
+        "record_work_order",
+        {
+            "summary": plan.get("summary") or "maintenance issue",
+            "issue_category": top.get("category") or "GENERAL",
+            "problem_code": top.get("code") or "OTHER / UNCLASSIFIED",
+            "urgency": top.get("urgency") or "ROUTINE",
+            "taxonomy_urgency": top.get("urgency") or "ROUTINE",
+            "vendor_trade": plan.get("trade") or top.get("trade") or "handyman",
+            "unit": case.unit,
+            "missing_info": [
+                question["field"] for question in (plan.get("questions") or [])
+            ],
+        },
+        case,
+        message,
+    )
+    case.add_trace(
+        "tool:record_work_order",
+        "observe",
+        json.dumps(case.snapshot(), ensure_ascii=False)[:240],
+    )
+    case.add_trace("tool:get_tenant_guidance", "observe", plan.get("key", "common"))
+    draft = _guided_operational_reply(message, case)
+    if not draft:
+        raise RuntimeError("Common-issue policy did not produce an operational response.")
+    case.add_trace(
+        "tool:find_vendor_slots",
+        "observe",
+        f"{len(case.offered_slots)} simulated {case.vendor_trade} windows",
+    )
+
+    messages = [
+        {"role": "system", "content": ROUTINE_RESPONSE_PROMPT},
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "tenant_message": message,
+                    "approved_draft": draft,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    try:
+        response = _call_llm(case, SUPERVISOR_MODULE, messages)
+        polished = (response.choices[0].message.content or "").strip()
+    except Exception as exc:  # the deterministic approved draft remains available
+        case.add_trace(
+            "supervisor",
+            "routine_response_fallback",
+            f"{type(exc).__name__}: using deterministic approved draft",
+        )
+        return draft, case
+
+    if not _routine_reply_is_complete(polished, plan, case):
+        case.add_trace(
+            "supervisor",
+            "routine_response_rejected",
+            "polished response omitted or contradicted an approved requirement",
+        )
+        return draft, case
+    case.add_trace("supervisor", "respond", polished[:160])
+    return polished, case
+
+
+def _complete_simulated_selection(
+    message: str,
+    case: CaseState,
+) -> Tuple[str, CaseState] | None:
+    """Record an explicitly selected demo option without claiming a real booking."""
+    if not case.offered_slots or case.status != STATUS_AWAITING_TENANT:
+        return None
+    selected = vendors.resolve_explicit_selection(message, case.offered_slots)
+    if selected is None:
+        return None
+    result = _dispatch_tool(
+        "book_appointment",
+        {"slot_id": selected["slot_id"]},
+        case,
+        message,
+    )
+    if not result.get("ok"):
+        return None
+    case.add_trace(
+        "tool:book_appointment",
+        "observe",
+        f"demo option {selected['option']} selected",
+    )
+    reply = (
+        f"Demo option {selected['option']} is selected: {selected['vendor_name']}, "
+        f"{selected['label']}. No calendar was reserved and no contractor or manager "
+        "was contacted; this only demonstrates the booking workflow."
+    )
+    return reply, case
+
+
 def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tuple[str, CaseState]:
     """Process one tenant message through the full pipeline. Returns (reply, case)."""
 
     # ---- 1. Safety Pre-Filter (rule-based, runs before any LLM call) ----
     case.unit = case.unit or _extract_unit(message)
+    case.policy_flags = list(
+        dict.fromkeys([*case.policy_flags, *_detect_policy_flags(message)])
+    )
     safety_result = safety.check(message)
     if safety_result["flag"]:
         case.safety_flag = True
@@ -445,10 +784,18 @@ def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tu
     if safety_result["force_escalate"]:
         return _emergency_path(message, case, safety_result)
 
+    simulated_selection = _complete_simulated_selection(message, case)
+    if simulated_selection is not None:
+        return simulated_selection
+
+    guidance_plan = tenant_guidance.plan_for(message, case)
+    if guidance_plan.get("key") != "generic":
+        return _common_issue_path(message, case, guidance_plan)
+
     # ---- 2. Supervisor agent loop ----
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        _context_message(case, safety_result),
+        _context_message(case, safety_result, guidance_plan),
         *_clean_history(history),
         {"role": "user", "content": message},
     ]
@@ -494,7 +841,12 @@ def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tu
                 args = {}
 
             try:
-                observation = _dispatch_tool(tc.function.name, args, case)
+                observation = _dispatch_tool(
+                    tc.function.name,
+                    args,
+                    case,
+                    message,
+                )
             except Exception as exc:  # noqa: BLE001 — a tool bug must not kill the case
                 observation = {"ok": False, "error": f"Tool failed: {type(exc).__name__}: {exc}"}
 
@@ -508,15 +860,40 @@ def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tu
             )
 
     # ---- 3. Loop guard (Autonomy Boundaries slide) ----
+    if (
+        guidance_plan.get("key") != "generic"
+        and case.status in {STATUS_NEEDS_INFO, STATUS_AWAITING_TENANT}
+        and case.appointment is None
+    ):
+        guided_reply = _guided_operational_reply(message, case)
+        if guided_reply:
+            reply = guided_reply
+            case.add_trace(
+                "supervisor",
+                "guided_response",
+                "deterministic safe steps, focused questions, and simulated routing rendered",
+            )
+
+    if not case.is_terminal():
+        guided_reply = _guided_operational_reply(message, case)
+        if guided_reply:
+            reply = guided_reply
+            case.add_trace(
+                "supervisor",
+                "policy_fallback",
+                "model stopped without a next state; deterministic guidance and routing applied",
+            )
+
     if not reply:
         if not case.is_terminal():
+            case.policy_flags.append("loop_exhausted")
             case.status = STATUS_ESCALATED
-            case.escalation_reason = "Loop guard: step budget exhausted without a terminal state."
+            case.escalation_reason = "Loop guard: step budget exhausted without a safe operational next state."
         case.add_trace("supervisor", "loop_guard", "step budget exhausted -> manager handoff")
         reply = (
-            "Thanks for your message — I've logged the issue and marked it for property "
-            "manager review. This demo does not send notifications, so please contact building "
-            "management directly."
+            "Thanks for your message — I couldn't determine a safe next step after the available "
+            "checks, so the case is marked for property-manager review. This demo does not send "
+            "notifications, so please contact building management directly."
         )
     else:
         case.add_trace("supervisor", "respond", reply[:160])

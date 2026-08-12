@@ -45,7 +45,8 @@ class CaseState(BaseModel):
     summary: Optional[str] = None
     issue_category: Optional[str] = None
     problem_code: Optional[str] = None
-    urgency: Optional[str] = None            # EMERGENCY | URGENT | ROUTINE
+    urgency: Optional[str] = None            # operational: EMERGENCY | URGENT | ROUTINE
+    taxonomy_urgency: Optional[str] = None   # source label retained separately
     vendor_trade: Optional[str] = None
 
     # Safety pre-filter
@@ -58,6 +59,7 @@ class CaseState(BaseModel):
     appointment: Optional[Dict[str, Any]] = None
     citations: List[Dict[str, Any]] = Field(default_factory=list)
     escalation_reason: Optional[str] = None
+    policy_flags: List[str] = Field(default_factory=list)
 
     # Decision trace ("Evidence travels with the work order")
     trace: List[Dict[str, Any]] = Field(default_factory=list)

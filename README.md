@@ -13,6 +13,13 @@ flow until durable server-side case state is implemented. Vendor availability,
 appointments, and notifications are demo simulations; they must not be treated
 as real reservations or messages to a contractor or manager.
 
+The HPD taxonomy's urgency is retained as source data but is not treated as a
+life-safety decision by itself. Only deterministic force-escalation hazards
+bypass routing. Known low-risk plumbing reports receive reversible containment
+steps, focused questions, and numbered windows from a simulated vendor directory;
+unsupported manager escalation and ambiguous/stale demo selections are rejected
+in Python.
+
 **Stack:** LLMod/OpenAI-compatible API (chat + embeddings) · Pinecone (vector DB) · FastAPI (Python)
 · vanilla HTML/JS frontend · Vercel (serverless deployment).
 
@@ -32,7 +39,7 @@ maintenance-copilot/
 │       └── state.py        # Shared Case State (work order + decision trace)
 ├── data/                   # official source documents + grouped HPD taxonomy
 ├── instructions/           # project instructions
-├── public/index.html       # assignment UI (response + complete LLM trace)
+├── public/index.html       # response-first assignment UI + structured LLM trace
 ├── public/model-architecture.png
 ├── scripts/                # data loaders and connection/retrieval checks
 ├── supabase/migrations/    # database schema
@@ -93,7 +100,11 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/execute `
 Each successful execution is saved to Supabase as a case with user/assistant
 messages and ordered `llm_call` events. The older `/api/chat` endpoint remains
 available for stateful-client experiments, but the required root UI uses
-stateless `/api/execute` calls.
+stateless `/api/execute` calls. The root page keeps the final response visually
+primary and places every complete model prompt/response in a collapsible,
+copyable trace inspector. It also preserves the prompt across safe error and
+retry states; it does not claim to show structured case data that the assignment
+response does not expose.
 
 Run the offline assignment-contract suite without calling LLMod, Pinecone, or
 Supabase:
@@ -133,8 +144,6 @@ the Vercel-style Python entrypoint.
 | `PINECONE_REGION` | `us-east-1` | optional index-creation setting |
 | `LLMOD_MODEL` | `MB5R2CF-azure/gpt-5.4-mini` | supervisor model through LLMod |
 | `EMBED_MODEL` | `MB5R2CF-azure/text-embedding-3-small` | 1536-dim embeddings through LLMod |
-
-`LLMOD_API_KEY` is the only supported LLM credential variable.
 
 Verify the provider before running the app:
 
@@ -177,6 +186,10 @@ the live retrieval check explicitly:
   yet preserve a case across follow-up prompts.
 - `api/lib/vendors.py` returns deterministic demonstration vendors and time
   windows. It does not reserve Supabase slots or contact anyone.
+- Common clogged-toilet/drain cases use a compact guarded path: deterministic
+  classification, tenant guidance, and simulated availability plus at most one
+  LLM call for wording. This prevents routine HPD `EMERGENCY` labels from being
+  mistaken for automatic manager escalation.
 - Supabase is required for a successful `/api/execute`; Pinecone retrieval can
   degrade gracefully when unavailable, but no retrieved guidance citations are
   available in that fallback mode.
