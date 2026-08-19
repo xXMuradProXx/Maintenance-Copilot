@@ -206,6 +206,7 @@
   .trace-section h4 { margin: 0; font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase; }
   .copy-button { padding: 4px 8px; background: transparent; color: var(--brand-dark); font-size: 0.7rem; }
   .copy-button:hover { background: var(--brand-soft); }
+  .copy-button[disabled] { opacity: 0.45; cursor: not-allowed; }
   .code-value { margin: 0; max-height: 240px; overflow: auto; padding: 12px; border: 1px solid #e0e0d7; border-radius: 9px; background: #fff; color: #24312e; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.72rem; line-height: 1.55; }
   .trace-empty { padding: 8px 2px 2px; color: var(--muted); font-size: 0.84rem; }
 
@@ -320,6 +321,8 @@
         <summary>
           <span class="trace-title"><strong>Technical trace</strong><span>Every LLM prompt and response, in chronological order</span></span>
           <span class="trace-count" id="trace-count">0 calls</span>
+          <button class="copy-button" id="copy-run" type="button" disabled>Copy all</button>
+          <button class="copy-button" id="download-run" type="button" disabled>Download</button>
         </summary>
         <ol class="trace-list" id="trace-list"><li class="trace-empty">Run the agent to inspect its model calls.</li></ol>
       </details>
@@ -362,10 +365,13 @@ const resultBody = document.getElementById("result-body");
 const traceShell = document.getElementById("trace-shell");
 const traceCount = document.getElementById("trace-count");
 const traceList = document.getElementById("trace-list");
+const copyRunButton = document.getElementById("copy-run");
+const downloadRunButton = document.getElementById("download-run");
 const announcer = document.getElementById("announcer");
 
 let busy = false;
 let lastPrompt = "";
+let lastRun = null;
 let elapsedTimer = null;
 let startedAt = 0;
 
@@ -568,6 +574,19 @@ function publicErrorMessage(error, timedOut) {
   return "The agent could not complete this request. Please retry in a moment; your request is still in the text box.";
 }
 
+function clearRunExport() {
+  lastRun = null;
+  window.lastRun = null;
+  copyRunButton.disabled = true;
+  copyRunButton.textContent = "Copy all";
+  downloadRunButton.disabled = true;
+  downloadRunButton.textContent = "Download";
+}
+
+function runExportJson() {
+  return JSON.stringify(lastRun, null, 2);
+}
+
 async function runAgent(prefilledPrompt) {
   if (busy) return;
   const prompt = (typeof prefilledPrompt === "string" ? prefilledPrompt : promptEl.value).trim();
@@ -577,6 +596,7 @@ async function runAgent(prefilledPrompt) {
   }
 
   lastPrompt = prompt;
+  clearRunExport();
   if (promptEl.value.trim() !== prompt) promptEl.value = prompt;
   updateCounter();
   busy = true;
@@ -603,6 +623,15 @@ async function runAgent(prefilledPrompt) {
     try { data = await response.json(); }
     catch (_) { throw new Error("The service returned an unreadable response. Please retry."); }
     steps = Array.isArray(data.steps) ? data.steps : [];
+    lastRun = {
+      prompt,
+      requested_at: new Date().toISOString(),
+      http_status: response.status,
+      payload: data,
+    };
+    window.lastRun = lastRun;
+    copyRunButton.disabled = false;
+    downloadRunButton.disabled = false;
     if (!response.ok || data.status !== "ok" || typeof data.response !== "string") {
       throw new Error(typeof data.error === "string" && data.error ? data.error : "The agent could not complete this request. Please retry.");
     }
@@ -630,6 +659,40 @@ promptEl.addEventListener("keydown", (event) => {
   }
 });
 runButton.addEventListener("click", () => runAgent());
+
+// Both buttons live inside <summary>, so the click must be neutralised or the
+// browser toggles the trace panel shut underneath the export.
+copyRunButton.addEventListener("click", async (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!lastRun) return;
+  try {
+    await navigator.clipboard.writeText(runExportJson());
+    copyRunButton.textContent = "Copied";
+    announce("The complete run was copied to the clipboard.");
+  } catch (_) {
+    copyRunButton.textContent = "Copy failed";
+    announce("The run could not be copied. Use Download instead.");
+  }
+  window.setTimeout(() => { copyRunButton.textContent = "Copy all"; }, 1400);
+});
+
+downloadRunButton.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!lastRun) return;
+  const blob = new Blob([runExportJson()], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "copilot-run-" + lastRun.requested_at.replace(/[:.]/g, "-") + ".json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoking synchronously can cancel the download before it starts in some browsers.
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  announce("The complete run was saved as a JSON file.");
+});
 
 document.getElementById("example-list").addEventListener("click", (event) => {
   const example = event.target.closest(".example");
