@@ -422,17 +422,27 @@ def agent_info() -> AgentInfoResponse:
 
 @app.get("/api/health")
 @app.get("/health")
-def health() -> Dict[str, Any]:
+def health(probe: bool = False) -> Dict[str, Any]:
 	database_status = check_supabase_connection()
-	return {
+	payload = {
 		"status": "ok",
 		"model": os.getenv("LLMOD_MODEL", "MB5R2CF-azure/gpt-5.4-mini"),
 		"llmod": llmod_public_status(),
 		"pinecone_key_present": bool(os.getenv("PINECONE_API_KEY")),
 		"pinecone_index": os.getenv("PINECONE_INDEX", "maintenance-copilot"),
 		"pinecone_namespace": os.getenv("PINECONE_NAMESPACE", "official-housing-v1"),
+		"embed_model": os.getenv("EMBED_MODEL", "MB5R2CF-azure/text-embedding-3-small"),
 		"supabase": database_status,
 	}
+	if probe:
+		from lib import rag
+		result = rag.retrieve("heat season temperature requirements", top_k=1)
+		payload["rag_probe"] = {
+			"ok": result.get("ok"),
+			"error": result.get("error"),
+			"top_title": (result.get("results") or [{}])[0].get("title"),
+		}
+	return payload
 
 
 # Local-dev convenience: serve the frontend from the same server.

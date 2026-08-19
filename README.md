@@ -129,21 +129,21 @@ the Vercel-style Python entrypoint.
 
 ## Configuration
 
-| Env var | Default | Purpose |
-|---|---|---|
-| `LLMOD_BASE_URL` | — | required LLMod OpenAI-compatible endpoint |
-| `LLMOD_API_KEY` | — | required shared LLMod key |
-| `LLMOD_TIMEOUT_SECONDS` | `45` | per-request timeout |
-| `LLMOD_MAX_RETRIES` | `2` | SDK retry count |
-| `SUPABASE_URL` | — | required project URL for taxonomy, cases, audit events, and scheduling |
-| `SUPABASE_SECRET_KEY` | — | required backend-only secret key; never expose it to the browser |
-| `PINECONE_API_KEY` | — | required (RAG degrades gracefully without it) |
-| `PINECONE_INDEX` | `maintenance-copilot` | index name |
-| `PINECONE_NAMESPACE` | `official-housing-v1` | required versioned corpus namespace; set explicitly locally and in Vercel |
-| `PINECONE_CLOUD` | `aws` | optional index-creation setting |
-| `PINECONE_REGION` | `us-east-1` | optional index-creation setting |
-| `LLMOD_MODEL` | `MB5R2CF-azure/gpt-5.4-mini` | supervisor model through LLMod |
-| `EMBED_MODEL` | `MB5R2CF-azure/text-embedding-3-small` | 1536-dim embeddings through LLMod |
+| Env var                 | Default                                | Purpose                                                                   |
+|-------------------------|----------------------------------------|---------------------------------------------------------------------------|
+| `LLMOD_BASE_URL`        | —                                      | required LLMod OpenAI-compatible endpoint                                 |
+| `LLMOD_API_KEY`         | —                                      | required shared LLMod key                                                 |
+| `LLMOD_TIMEOUT_SECONDS` | `45`                                   | per-request timeout                                                       |
+| `LLMOD_MAX_RETRIES`     | `2`                                    | SDK retry count                                                           |
+| `SUPABASE_URL`          | —                                      | required project URL for taxonomy, cases, audit events, and scheduling    |
+| `SUPABASE_SECRET_KEY`   | —                                      | required backend-only secret key; never expose it to the browser          |
+| `PINECONE_API_KEY`      | —                                      | required (RAG degrades gracefully without it)                             |
+| `PINECONE_INDEX`        | `maintenance-copilot`                  | index name                                                                |
+| `PINECONE_NAMESPACE`    | `official-housing-v1`                  | required versioned corpus namespace; set explicitly locally and in Vercel |
+| `PINECONE_CLOUD`        | `aws`                                  | optional index-creation setting                                           |
+| `PINECONE_REGION`       | `us-east-1`                            | optional index-creation setting                                           |
+| `LLMOD_MODEL`           | `MB5R2CF-azure/gpt-5.4-mini`           | supervisor model through LLMod                                            |
+| `EMBED_MODEL`           | `MB5R2CF-azure/text-embedding-3-small` | 1536-dim embeddings through LLMod                                         |
 
 Verify the provider before running the app:
 
