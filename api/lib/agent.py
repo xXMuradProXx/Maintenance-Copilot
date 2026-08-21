@@ -13,6 +13,7 @@ Loop guard (Autonomy Boundaries slide): at most MAX_STEPS supervisor
 iterations; if the budget is exhausted without a terminal state, the case is
 handed to the human manager.
 """
+from __future__ import annotations
 
 import json
 import os
