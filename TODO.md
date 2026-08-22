@@ -31,7 +31,7 @@ Do not let the simulated booking work delay or weaken the assignment-required `/
 
 ### 1. Preserve and clean up the current work
 - [x] Normalize the `api/lib` import strategy so direct `import api.lib.agent` works without first importing `api.index`, or document and test the chosen entrypoint-only strategy.
-- [ ] Verify in a Vercel preview build that non-underscored helpers under `api/lib/` are bundled as dependencies and are not exposed or built as unintended functions.
+- [x] Verify in a Vercel preview build that non-underscored helpers under `api/lib/` are bundled as dependencies and are not exposed or built as unintended functions.
 
 ### 2. Make the advertised workflow genuinely end-to-end
 
@@ -52,14 +52,14 @@ Do not let the simulated booking work delay or weaken the assignment-required `/
 
 ### 3. Verify production data and external services
 
-- [ ] Resolve and verify Supabase connectivity. The 2026-08-11 local health check reported `connected: false` / `migration_applied: false`; determine whether this is network isolation, invalid credentials, or an unapplied migration.
-- [ ] Apply `supabase/migrations/001_initial_schema.sql` to the intended project and run `scripts/check_supabase.py` successfully.
-- [ ] Load the validated taxonomy with `scripts/load_taxonomy.py`, then make `scripts/check_taxonomy_search.py` pass against Supabase rather than the local fallback.
-- [ ] Set `PINECONE_NAMESPACE` explicitly in local and Vercel configuration so corpus versions cannot silently collide.
-- [ ] Upload the official corpus once the winning chunking configuration is chosen; confirm Pinecone and the Supabase manifest contain the same document/chunk IDs and hashes.
-- [ ] Run `scripts/check_rag.py --live` and verify correct page/file provenance for a broader evaluation set, not only the three current smoke queries.
-- [ ] Run the LLMod tool-calling/embedding checks and the agent-loop smoke test, while recording token use and staying within the $13 course budget.
-- [ ] Confirm the official documents' versions, authority, and current validity; record retrieval date/source URL/license in document metadata.
+- [x] Resolve and verify Supabase connectivity. The 2026-08-11 local health check reported `connected: false` / `migration_applied: false`; determine whether this is network isolation, invalid credentials, or an unapplied migration.
+- [x] Apply `supabase/migrations/001_initial_schema.sql` to the intended project and run `scripts/check_supabase.py` successfully.
+- [x] Load the validated taxonomy with `scripts/load_taxonomy.py`, then make `scripts/check_taxonomy_search.py` pass against Supabase rather than the local fallback.
+- [x] Set `PINECONE_NAMESPACE` explicitly in local and Vercel configuration so corpus versions cannot silently collide.
+- [x] Upload the official corpus once the winning chunking configuration is chosen; confirm Pinecone and the Supabase manifest contain the same document/chunk IDs and hashes.
+- [x] Run `scripts/check_rag.py --live` and verify correct page/file provenance for a broader evaluation set, not only the three current smoke queries.
+- [x] Run the LLMod tool-calling/embedding checks and the agent-loop smoke test, while recording token use and staying within the $13 course budget.
+- [x] Confirm the official documents' versions, authority, and current validity; record retrieval date/source URL/license in document metadata.
 
 ### 4. Redesign and verify the UI/UX
 

@@ -294,6 +294,18 @@ def team_info() -> TeamInfoResponse:
 @app.get("/agent_info", response_model=AgentInfoResponse)
 def agent_info() -> AgentInfoResponse:
 	emergency_message = "I smell gas in my kitchen in apartment 4B."
+	example_citations = (
+		"- [ABCs of Housing, page 10] I. Gas Leaks\n\n"
+		"as leak s can create fires Proper t y owners are required 2. Af ter leaving "
+		"the building, Gand explosions. It\u2019s to post signage and provide from a safe "
+		"distance away impor tant that you and your information to tenants from the "
+		"building, call 9 11 family know how to recognize regarding \n"
+		"- [NYC Housing Maintenance Code (Title 27, Chapter 2), page 6] the expected "
+		"start and end dates of the service interruption. The notice shall be updated "
+		"as needed. Such notice shall be posted in English, Spanish and such other "
+		"languages as the department may provide by rule.\n\n"
+		"2. Repairs made pursuant to section 27-2125 of this code shall be exempt from the prov\n"
+	)
 	emergency_system = EMERGENCY_PROMPT.format(
 		reason="Possible gas leak reported",
 		guidance=(
@@ -302,7 +314,7 @@ def agent_info() -> AgentInfoResponse:
 			"911 and your gas utility's 24-hour emergency line."
 		),
 		unit="4B",
-		citations="none available",
+		citations=example_citations,
 	)
 	example_context = (
 		"Today is an example date. Message channel: portal.\n"
@@ -339,6 +351,22 @@ def agent_info() -> AgentInfoResponse:
 		],
 		ensure_ascii=False,
 	)
+
+	mold_message = "There is black mold spreading across the bathroom ceiling in apartment 5C."
+	mold_reply = (
+		"Thanks \u2014 I understand there\u2019s black mold spreading across the bathroom "
+		"ceiling in apartment 5C. That can be a serious moisture issue, and the building "
+		"is responsible for addressing it. For mold work, the city guidance I found points "
+		"to \u201cNYC Housing Maintenance Code (Title 27, Chapter 2), \u00a7 27-2017.1 "
+		"Owners\u2019 responsibility to remediate\u201d and \u201c\u00a7 27-2153 Alternative "
+		"enforcement program.\u201d\n\nWhat I still need is: is there any active leak, water "
+		"staining, or other moisture source causing it? Once you tell me that, I can route "
+		"this correctly for next steps."
+	)
+	mold_first_prompt = json.dumps(
+		[{"role": "user", "content": mold_message}], ensure_ascii=False
+	)
+
 	return AgentInfoResponse.model_validate({
 		"description": (
 			"Maintenance Copilot is a supervisor-style AI agent for tenant "
@@ -407,7 +435,7 @@ def agent_info() -> AgentInfoResponse:
 							"system_prompt": example_system,
 							"user_prompt": vague_first_prompt,
 						},
-						"response": {"content": "", "tool_calls": [{"name": "ask_tenant", "arguments": "{\"missing_fields\":[\"problem details\",\"unit\"]}"}]},
+						"response": {"model": MODEL, "content": "", "tool_calls": [{"name": "ask_tenant", "arguments": "{\"missing_fields\":[\"problem details\",\"unit\"]}"}]},
 					},
 					{
 						"module": "SupervisorAgent",
@@ -415,11 +443,88 @@ def agent_info() -> AgentInfoResponse:
 							"system_prompt": example_system,
 							"user_prompt": vague_second_prompt,
 						},
-						"response": {"content": "I can help open the right work order. What exactly is happening in the bathroom, and what is your apartment number?", "tool_calls": []},
+						"response": {"model": MODEL, "content": "I can help open the right work order. What exactly is happening in the bathroom, and what is your apartment number?", "tool_calls": []},
 					},
 				],
 			},
-			
+			{
+				"prompt": mold_message,
+				"full_response": mold_reply,
+				"steps": [
+					{
+						"module": "SupervisorAgent",
+						"prompt": {
+							"system_prompt": example_system,
+							"user_prompt": mold_first_prompt,
+						},
+						"response": {
+							"model": MODEL,
+							"content": "",
+							"tool_calls": [
+								{
+									"id": "example_mold_call_1",
+									"name": "classify_issue",
+									"arguments": "{\"query\": \"black mold spreading across the bathroom ceiling in apartment 5C\"}",
+								},
+								{
+									"id": "example_mold_call_2",
+									"name": "retrieve_guidance",
+									"arguments": "{\"query\": \"mold bathroom ceiling housing code source guidance remediation obligation\"}",
+								},
+								{
+									"id": "example_mold_call_3",
+									"name": "get_tenant_guidance",
+									"arguments": "{}",
+								},
+							],
+						},
+					},
+					{
+						"module": "SupervisorAgent",
+						"prompt": {
+							"system_prompt": example_system,
+							"user_prompt": mold_first_prompt,
+						},
+						"response": {
+							"model": MODEL,
+							"content": "",
+							"tool_calls": [{
+								"id": "example_mold_call_4",
+								"name": "record_work_order",
+								"arguments": "{\"summary\":\"Black mold is spreading across the bathroom ceiling in apartment 5C.\",\"issue_category\":\"GENERAL\",\"problem_code\":\"MOLD & MILDEW\",\"urgency\":\"URGENT\",\"taxonomy_urgency\":\"EMERGENCY\",\"vendor_trade\":\"remediation\",\"unit\":\"5C\",\"missing_info\":[\"Whether the mold is associated with an active leak, water staining, or other moisture source.\"]}",
+							}],
+						},
+					},
+					{
+						"module": "SupervisorAgent",
+						"prompt": {
+							"system_prompt": example_system,
+							"user_prompt": mold_first_prompt,
+						},
+						"response": {
+							"model": MODEL,
+							"content": "",
+							"tool_calls": [{
+								"id": "example_mold_call_5",
+								"name": "ask_tenant",
+								"arguments": "{\"missing_fields\":[\"Whether the mold is associated with an active leak, water staining, or other moisture source.\"]}",
+							}],
+						},
+					},
+					{
+						"module": "SupervisorAgent",
+						"prompt": {
+							"system_prompt": example_system,
+							"user_prompt": mold_first_prompt,
+						},
+						"response": {
+							"model": MODEL,
+							"content": mold_reply,
+							"tool_calls": [],
+						},
+					},
+				],
+			},
 		],
 		"model": MODEL,
 		"modules": list(PUBLIC_MODULES),
