@@ -74,7 +74,7 @@ def _detect_policy_flags(message: str) -> List[str]:
         ("legal_threat", r"\b(lawsuit|lawyer|attorney|sue|legal action|housing court)\b"),
         ("vulnerable_tenant", r"\b(infant|newborn|baby|elderly|disabled|pregnant|wheelchair|oxygen tank)\b"),
         ("repeat_unresolved", r"\b(still not fixed|not fixed yet|again|third time|fourth time|keeps happening)\b"),
-        ("out_of_scope", r"\b(write (an? )?email|book (a )?flight|homework|stock price|weather forecast)\b"),
+        ("out_of_scope", r"\b(write (an? )?email|book (a )?flight|homework|stock price|weather forecast|rent (is )?due|rent payment|late fee|security deposit|lease (renewal|terms|agreement)|eviction|rent extension)\b"),
     )
     for flag, pattern in patterns:
         if re.search(pattern, text):
