@@ -602,6 +602,9 @@ def _guided_operational_reply(message: str, case: CaseState) -> str | None:
         return None
 
     issue = plan.get("summary") or case.summary or "maintenance issue"
+    issue = (issue or "").strip().rstrip(".")
+    if len(issue.split()) > 8 or " is " in issue or " are " in issue:
+        issue = (case.problem_code or "maintenance issue").lower()
     location = f" in apartment {case.unit}" if case.unit else ""
     parts = [f"Thanks for reporting the {issue}{location}."]
     if safe_steps:
@@ -884,14 +887,22 @@ def run_case(message: str, history: List[Dict[str, Any]], case: CaseState) -> Tu
             )
 
     if not case.is_terminal():
-        guided_reply = _guided_operational_reply(message, case)
-        if guided_reply:
-            reply = guided_reply
+        if reply.strip():
+            case.status = STATUS_NEEDS_INFO
             case.add_trace(
                 "supervisor",
-                "policy_fallback",
-                "model stopped without a next state; deterministic guidance and routing applied",
+                "model_reply_kept",
+                "model produced a grounded tenant reply; state advanced to needs_info",
             )
+        else:
+            guided_reply = _guided_operational_reply(message, case)
+            if guided_reply:
+                reply = guided_reply
+                case.add_trace(
+                    "supervisor",
+                    "policy_fallback",
+                    "model stopped without a reply; deterministic guidance and routing applied",
+                )
 
     if not reply:
         if not case.is_terminal():

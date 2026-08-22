@@ -307,6 +307,11 @@ def agent_info() -> AgentInfoResponse:
 	example_context = (
 		"Today is an example date. Message channel: portal.\n"
 		"SAFETY PRE-FILTER: none\n"
+		"DETERMINISTIC TENANT GUIDANCE (JSON; use these steps/questions and do not "
+		"invent additional DIY work): {\"key\": \"generic\", \"summary\": \"maintenance "
+		"issue\", \"trade\": null, \"safe_steps\": [], \"questions\": [{\"field\": "
+		"\"problem details\", \"question\": \"What exactly is happening, and where in "
+		"the apartment is it happening?\"}]}\n"
 		"CURRENT SHARED CASE STATE (JSON): {\"status\":\"new\",\"channel\":\"portal\"}"
 	)
 	example_system = SYSTEM_PROMPT + "\n\n" + example_context
@@ -414,6 +419,7 @@ def agent_info() -> AgentInfoResponse:
 					},
 				],
 			},
+			
 		],
 		"model": MODEL,
 		"modules": list(PUBLIC_MODULES),
