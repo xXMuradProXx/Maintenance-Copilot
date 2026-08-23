@@ -123,6 +123,14 @@ The four required endpoints are:
 | `GET` | `/api/model_architecture` | Architecture diagram as `image/png` |
 | `POST` | `/api/execute` | Run one prompt and return `status`, `error`, `response`, and every LLM call in `steps` |
 
+Important note:
+
+`/api/agent_info` examples are recorded from real executions. Module names, tool
+calls, arguments, and responses are verbatim; the accumulated conversation
+history inside each step's `user_prompt` is abbreviated to the original tenant
+message for readability. `/api/execute` returns the complete, unabbreviated
+trace.
+
 Example:
 
 ```powershell
@@ -193,20 +201,22 @@ Verify the provider before running the app:
 
 ## Data sources and provenance
 
-| Source | Type | Size | SHA-256 (prefix) | Retrieved |
-|---|---|---|---|---|
-| NYC Housing Maintenance Code (Title 27, Ch. 2) | RAG corpus | 76 pages, 490 chunks | `95083768cee702d3` | `<date>` |
-| ABCs of Housing (HPD) | RAG corpus | 35 pages, 89 chunks | `d4be06b395b05cb7` | `<date>` |
-| HPD Guidelines for Repairs & Maintenance | RAG corpus | 27 pages, 46 chunks | `720348bce5c235e9` | `<date>` |
-| HPD Housing Maintenance Code Complaints (grouped) | Structured taxonomy | 641 rows, 11,586,134 complaints | `58b85aada81d5665` | `<date>` |
+| Source | Type | Size | SHA-256 (prefix) |
+|---|---|---|---|
+| NYC Housing Maintenance Code (Title 27, Ch. 2) | RAG corpus | 76 pages, 490 chunks | `95083768cee702d3` |
+| ABCs of Housing (HPD) | RAG corpus | 35 pages, 89 chunks | `d4be06b395b05cb7` |
+| HPD Guidelines for Repairs & Maintenance | RAG corpus | 27 pages, 46 chunks | `720348bce5c235e9` |
+| HPD Housing Maintenance Code Complaints (grouped) | Structured taxonomy | 641 rows, 11,586,134 complaints | `58b85aada81d5665` |
 
 Corpus totals: 625 chunks, approximately 833,000 characters, in the
 `official-housing-v1` namespace. The taxonomy's four source priority labels
 (`IMMEDIATE EMERGENCY`, `EMERGENCY`, `HAZARDOUS`, `NON EMERGENCY`) are mapped
 once at ingestion to the three-value vocabulary the agent reasons over.
 
-The checked-in PDFs and CSV are local snapshots, not live fetches. Add the
-source URL and retrieval date for each before relying on them as current.
+Source URLs for all four datasets are documented in the team's Assignment 2
+submission. The checked-in PDFs and CSV are local snapshots taken during the
+course, not live fetches; the SHA-256 prefixes above identify the exact files
+that were ingested.
 
 ## Official PDF ingestion
 

@@ -43,6 +43,7 @@ PUBLIC_MODULES = (
     "SafetyPreFilter",
     SUPERVISOR_MODULE,
     EMERGENCY_RESPONSE_MODULE,
+    "TenantGuidance",
     "TaxonomySearch",
     "GuidanceRetriever",
     "SchedulingTools",

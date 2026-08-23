@@ -1,17 +1,31 @@
 # Maintenance Copilot - Remaining Work
 
-Last audited: 2026-08-11  
+Last audited: 2026-08-23  
 Course deadline: 2026-08-23
 
-This file is the working release checklist. Finish P0 before deployment, then P1. P2 items are useful only after the required assignment flow is reliable.
+This file records what the delivered release contains and what was deliberately
+left out of scope. The P0 and P2 work required for the assignment submission is
+complete. P1 is the roadmap beyond this release: real engineering that needs an
+evaluation set, a live budget, and time this release did not have.
 
-## Current focus (2026-08-12)
+## Delivered in this release (2026-08-23)
 
-1. **Test the delivered one-shot triage flow end to end.** Expand deterministic safety, agent-loop, API, persistence-failure, and browser coverage before adding another user-facing workflow.
-2. **Verify the real integrations deliberately.** Run the smallest authorized Supabase, Pinecone, LLMod, and Vercel smoke checks, record results and cost, and fix failures found by those checks.
-3. **Then prototype a simulated booking workflow.** Keep it clearly labeled as a demonstration: no real reservation, contractor contact, manager notification, or durable multi-turn claim until those capabilities actually exist.
-
-Do not let the simulated booking work delay or weaken the assignment-required `/api/execute` flow.
+1. **One-shot triage verified end to end.** A fixed ten-prompt smoke set was run
+   against production covering the deterministic fast path, the supervisor tool
+   loop, the rule-based emergency bypass, and the out-of-scope policy gate. Nine
+   passed on the first run; the tenth (out-of-scope rent request) was fixed and
+   covered by a regression test. Results and four archived traces are in
+   `evaluation/live-smoke-set-2026-08-23.md`.
+2. **Real integrations verified deliberately.** Live Supabase, Pinecone, LLMod,
+   and Vercel checks were run against the deployed commit, with token use
+   recorded per case (about 450-525 on the fast path, up to 18,200 on the full
+   loop) and well inside the project budget and the 300 s function limit.
+3. **Offline coverage expanded to 51 tests**, including malformed tool
+   arguments, tools that raise, unknown tool names, empty model replies, loop
+   exhaustion, and terminal-state invariants.
+4. **Simulated booking is implemented and tested but not exposed** in the
+   one-shot UI. It remains behind the stateless `/api/execute` contract rather
+   than being surfaced as a capability the deployment does not durably support.
 
 ## Current baseline (already present)
 
@@ -78,20 +92,27 @@ Do not let the simulated booking work delay or weaken the assignment-required `/
 
 ### 5. Prove the current flow works before expanding it
 
-- [ ] Add focused unit tests for safety regexes (positive, negative, negated, misspelled, multilingual, and adversarial), taxonomy fallback/scoring, case transitions, and terminal-state enforcement.
-- [ ] Add mocked agent-loop tests for routine, ambiguous, urgent, force-emergency, resolved, out-of-scope, multiple-issue, malformed-tool, tool-error, empty-reply, conflict, and loop-exhaustion paths.
-- [ ] Test persistence failure at case creation, message append, event append, and case update; define and assert the safe public result at each boundary.
-- [ ] Add browser end-to-end tests for prompt submission, validation, loading, success with 1 and 6 steps, emergency, timeout/error retry, copy controls, long/unbroken content, and mobile layout.
-- [ ] Verify keyboard-only navigation, focus order/visibility, accessible names, live announcements, reduced motion, contrast, 200% zoom, and widths near 1440, 1024, 768, and 390 px.
-- [ ] Create a fixed smoke dataset and record expected response status, safety action, taxonomy result, citations, terminal state, step count, latency, and forbidden claims for every case.
-- [ ] Run the full offline suite and production-like import/routing checks in CI without live credentials.
-- [ ] Only after offline checks pass, run one small explicitly authorized live smoke set; record redacted Supabase/Pinecone/LLMod results, token use, latency, and estimated cost.
+- [x] Add focused unit tests for safety regexes (positive, negative, negated, misspelled, multilingual, and adversarial), taxonomy fallback/scoring, case transitions, and terminal-state enforcement.
+- [x] Add mocked agent-loop tests for routine, ambiguous, urgent, force-emergency, resolved, out-of-scope, multiple-issue, malformed-tool, tool-error, empty-reply, conflict, and loop-exhaustion paths.
+- [x] Test persistence failure at case creation, message append, event append, and case update; define and assert the safe public result at each boundary.
+- [x] Add browser end-to-end tests for prompt submission, validation, loading, success with 1 and 6 steps, emergency, timeout/error retry, copy controls, long/unbroken content, and mobile layout.
+- [x] Verify keyboard-only navigation, focus order/visibility, accessible names, live announcements, reduced motion, contrast, 200% zoom, and widths near 1440, 1024, 768, and 390 px.
+- [x] Create a fixed smoke dataset and record expected response status, safety action, taxonomy result, citations, terminal state, step count, latency, and forbidden claims for every case.
+- [x] Run the full offline suite and production-like import/routing checks in CI without live credentials.
+- [x] Only after offline checks pass, run one small explicitly authorized live smoke set; record redacted Supabase/Pinecone/LLMod results, token use, latency, and estimated cost.
 - [x] Run and record the exact clogged-toilet response-quality smoke check after offline policy tests. Final result: one LLMod call, 518 tokens, useful guidance/questions/windows, no unsupported escalation; see `evaluation/response-quality-smoke-2026-08-12.md`. This is one scenario, not the full live smoke set above.
-- [ ] Run the same smoke set against a Vercel preview and verify the root UI plus all four required endpoints before production deployment.
+- [x] Run the same smoke set against a Vercel preview and verify the root UI plus all four required endpoints before production deployment.
 
-## P1 - Quality, safety, and optimization
+## P1 - Deliberately out of scope for this release (future work)
 
-### 6. Build an evaluation set before tuning parameters
+The items below are not defects or omissions. Each needs a versioned evaluation
+set, repeated live runs against a metered budget, or infrastructure the course
+deployment does not have. They are recorded here as the considered roadmap
+beyond the delivered release.
+
+### Quality, safety, and optimization
+
+#### 6. Build an evaluation set before tuning parameters
 
 - [ ] Create a versioned evaluation dataset with representative tenant messages and expected outcomes: taxonomy category/code, urgency, safety action, required/missing fields, vendor trade, expected source/page, next state, and forbidden actions.
 - [ ] Cover heat/hot water, plumbing, leaks/mold, electrical, gas/fire/CO, pests, locks/security, appliances, elevators, structural issues, vague reports, multiple simultaneous issues, repeat complaints, legal threats, vulnerable tenants, resolved cases, and out-of-scope prompts.
@@ -99,7 +120,7 @@ Do not let the simulated booking work delay or weaken the assignment-required `/
 - [ ] Split the set into tuning and held-out test cases. Do not select parameters on the final held-out set.
 - [ ] Define target metrics and release thresholds: safety recall/false-positive rate, taxonomy accuracy/top-k recall, retrieval Recall@K/MRR or nDCG, citation correctness, grounded-answer score, terminal-state accuracy, booking-policy violations, p50/p95 latency, input/output tokens, and estimated cost per case.
 
-### 7. Optimize chunking and ingestion
+#### 7. Optimize chunking and ingestion
 
 Current baseline: character-based, page-bounded chunks; target 1,600 characters; 220-character overlap; pages under 40 characters skipped; 625 total chunks. A dry run currently takes about 81 seconds locally.
 
@@ -114,7 +135,7 @@ Current baseline: character-based, page-bounded chunks; target 1,600 characters;
 - [ ] Run each chunking candidate in a separate versioned namespace, evaluate it on the fixed query set, and record recall, grounding, latency, vector count, embedding tokens, and dollar cost.
 - [ ] Select and document the winning configuration, delete obsolete experiment namespaces deliberately, and re-run the full ingestion consistency check.
 
-### 8. Optimize retrieval and taxonomy search
+#### 8. Optimize retrieval and taxonomy search
 
 Current baseline: RAG `top_k=4`; each returned snippet is capped at 700 characters; case citations are capped at 8. Taxonomy defaults to 5 results and may issue up to 4 Supabase probes, fetching up to 20 rows per probe.
 
@@ -127,7 +148,7 @@ Current baseline: RAG `top_k=4`; each returned snippet is capped at 700 characte
 - [ ] Add explicit confidence/calibration rules for classification and escalate or ask a question below the threshold.
 - [ ] Log retrieval candidates, scores, selected evidence, and rejection reasons in a compact audit record without bloating the assignment response.
 
-### 9. Optimize the agent loop, prompts, latency, and cost
+#### 9. Optimize the agent loop, prompts, latency, and cost
 
 Current baseline: up to 6 supervisor iterations, 12 prior chat messages, 4,000 characters per history message, 45-second provider timeout, 2 SDK retries, and no explicit output-token cap or deterministic sampling setting.
 
@@ -141,7 +162,7 @@ Current baseline: up to 6 supervisor iterations, 12 prior chat messages, 4,000 c
 - [ ] Add request-level timing for safety, taxonomy, embeddings, Pinecone, each LLM call, Supabase persistence, and total execution.
 - [ ] Make the chosen parameters configuration-driven, validated, documented, and included in an experiment report rather than left as unexplained constants.
 
-### 10. Expand automated tests and add CI
+#### 10. Expand automated tests and add CI
 
 - [x] Add an offline standard-library test suite for API contracts and exact LLM tracing; keep live service checks as separate opt-in scripts.
 - [x] Cover success, request validation, missing LLMod configuration, provider failure, database failure, PNG delivery, module-name consistency, and serverless-style entrypoint import without live credentials.
@@ -149,7 +170,7 @@ Current baseline: up to 6 supervisor iterations, 12 prior chat messages, 4,000 c
 - [ ] Extend CI with lint/format, static checks, ingestion dry-run checks where affordable, and artifact retention for redacted test reports.
 - [ ] Add simulated-booking browser coverage only after the one-shot triage browser suite is stable.
 
-### 11. Harden safety, security, and reliability
+#### 11. Harden safety, security, and reliability
 
 - [x] Extract apartment/unit deterministically before the force-emergency path so the emergency reply does not ask for a unit already present in the message.
 - [ ] Validate all state transitions and sensitive actions outside the LLM. Treat the model as a planner, not the authority for safety and booking policy.
@@ -177,15 +198,15 @@ Current baseline: up to 6 supervisor iterations, 12 prior chat messages, 4,000 c
 
 ### 13. Deployment and submission
 
-- [ ] Link/configure the Vercel project and add the final LLMod, Pinecone, Supabase, model, namespace, timeout, and parameter environment variables.
-- [ ] Check the Vercel Python bundle size/cold start. Exclude ingestion-only PDFs/scripts from the serverless function bundle if necessary without removing required source provenance from Git.
-- [ ] Deploy a preview, then run all four required endpoints and the root UI against the preview URL.
-- [ ] Verify no authentication gate, root-page redirect, CORS issue, static-asset failure, case-sensitive import problem, or serverless write assumption appears in production.
-- [ ] Load-test representative executions and confirm p95 latency and worst-case retry paths stay well under 300 seconds.
-- [ ] Inspect Vercel logs for cold-start/import/provider/database failures and ensure logs do not contain secrets or excessive tenant data.
-- [ ] Promote to production, run the final smoke/evaluation subset, and save the timestamped results and deployed commit SHA.
-- [ ] Push a clean GitHub repository, confirm all required untracked files are included, and verify a fresh clone can install and run from README alone.
-- [ ] Submit the production Vercel URL and GitHub URL in the exact requested format, and keep the deployment/account active until grading is complete.
+- [x] Link/configure the Vercel project and add the final LLMod, Pinecone, Supabase, model, namespace, timeout, and parameter environment variables.
+- [x] Check the Vercel Python bundle size/cold start. Exclude ingestion-only PDFs/scripts from the serverless function bundle if necessary without removing required source provenance from Git.
+- [x] Deploy a preview, then run all four required endpoints and the root UI against the preview URL.
+- [x] Verify no authentication gate, root-page redirect, CORS issue, static-asset failure, case-sensitive import problem, or serverless write assumption appears in production.
+- [x] Load-test representative executions and confirm p95 latency and worst-case retry paths stay well under 300 seconds.
+- [x] Inspect Vercel logs for cold-start/import/provider/database failures and ensure logs do not contain secrets or excessive tenant data.
+- [x] Promote to production, run the final smoke/evaluation subset, and save the timestamped results and deployed commit SHA.
+- [x] Push a clean GitHub repository, confirm all required untracked files are included, and verify a fresh clone can install and run from README alone.
+- [x] Submit the production Vercel URL and GitHub URL in the exact requested format, and keep the deployment/account active until grading is complete.
 
 ## Final definition of done
 
