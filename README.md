@@ -38,6 +38,7 @@ maintenance-copilot/
 │       ├── rag.py          # LLMod embeddings + Pinecone retrieval
 │       └── state.py        # Shared Case State (work order + decision trace)
 ├── data/                   # official source documents + grouped HPD taxonomy
+├── evaluation/             # recorded live smoke runs and response-quality checks
 ├── instructions/           # project instructions
 ├── public/index.html       # response-first assignment UI + structured LLM trace
 ├── public/model-architecture.png
@@ -60,7 +61,32 @@ python -m venv .venv
 pip install -r requirements.txt
 
 cp .env.example .env        # then paste your LLMod, Pinecone, and Supabase credentials
+```
 
+Then prepare the data stores, in this order. A fresh clone will start the app
+successfully without these steps, but taxonomy lookups fall back to a small
+local table and retrieval returns no citations, so complete them first:
+
+```bash
+# 1. Apply the Supabase schema from supabase/migrations/ (SQL editor or CLI)
+
+# 2. Load the HPD complaint taxonomy into Supabase (641 rows)
+python scripts/load_taxonomy.py
+
+# 3. Ingest the official PDF corpus into Pinecone + Supabase manifests
+python scripts/load_official_sources.py --upload
+
+# 4. Verify retrieval end to end
+python scripts/check_rag.py --live
+```
+
+Steps 1–3 are one-time. Step 3 is idempotent: unchanged chunks are not
+re-embedded, so it is safe to re-run. `PINECONE_NAMESPACE` must be identical
+locally and in Vercel, or the deployed app will query an empty namespace.
+
+Start the server:
+
+```bash
 uvicorn api.index:app --reload
 ```
 
@@ -74,9 +100,17 @@ Open http://127.0.0.1:8000 — the frontend, API and interactive docs
 2. On https://vercel.com → **Add New… → Project** → import the repo. Framework
    preset: **Other**. No build command needed.
 3. In **Settings → Environment Variables**, add the same LLMod, Pinecone,
-   Supabase, and model variables used in `.env`.
+   Supabase, and model variables used in `.env`. Paste values only — a pasted
+   `KEY=value` line makes the variable unusable and fails at request time, not
+   at build time.
 4. Deploy. Your agent is live at `https://<project>.vercel.app` for anyone with
    the link. `public/` is served statically; `/api/*` hits the Python function.
+
+Environment-variable changes take effect only on a new build, so redeploy after
+editing them. `GET /api/health` echoes the resolved model names, Pinecone index
+and namespace, and Supabase status; check it before debugging behaviour. When
+verifying a deployment, confirm the deployed commit SHA in Vercel matches the
+commit you intend to test.
 
 ## 3. Assignment API
 
@@ -102,9 +136,9 @@ messages and ordered `llm_call` events. The older `/api/chat` endpoint remains
 available for stateful-client experiments, but the required root UI uses
 stateless `/api/execute` calls. The root page keeps the final response visually
 primary and places every complete model prompt/response in a collapsible,
-copyable trace inspector. It also preserves the prompt across safe error and
-retry states; it does not claim to show structured case data that the assignment
-response does not expose.
+copyable trace inspector, which can also export a whole run as JSON. It
+preserves the prompt across safe error and retry states; it does not claim to
+show structured case data that the assignment response does not expose.
 
 Run the offline assignment-contract suite without calling LLMod, Pinecone, or
 Supabase:
@@ -122,10 +156,15 @@ the Vercel-style Python entrypoint.
 
 | Message | Expected agent behavior |
 |---|---|
-| "The kitchen sink is clogged and water drains very slowly. Apt 4B." | Uses the official HPD plumbing classification and mapped urgency |
-| "No heat again since yesterday, apartment 12C" | Safety flag + RAG heat-season rules → EMERGENCY → **Escalated** |
-| "I smell gas in my kitchen!!" | Force-escalate: bypasses the LLM loop, immediate 911/utility safety steps |
-| "bathroom problem" | Missing facts → asks 1–2 questions → **Waiting for tenant info** |
+| "The kitchen sink is clogged and water drains very slowly. Apartment 4B." | Fast path: HPD classification, reversible containment steps, two routing questions, three simulated plumber windows. One LLM call. |
+| "There has been no heat since yesterday in apartment 12C." | Safety pre-filter flags the hazard; source taxonomy urgency `EMERGENCY` maps to operational `URGENT`, so the case is routed with simulated HVAC windows rather than escalated. |
+| "There is black mold spreading across the bathroom ceiling in apartment 5C." | Supervisor loop: classify, retrieve official guidance, record the work order, and reply citing the owner's remediation obligation. |
+| "I smell gas in the kitchen of apartment 3F." | Force-escalated by the pre-filter before any model call: immediate safety steps, no appointment offered, marked for manager review. |
+| "There is a problem in the bathroom of apartment 7A." | Too little information to classify: asks for details without recording a guessed problem code. |
+| "Can you tell me when my rent is due and whether I can get an extension this month?" | Out of scope: declines, escalates for manager review, and redirects to the billing or leasing channel. |
+
+Recorded traces for four of these paths are in
+`evaluation/live-smoke-set-2026-08-23.md`.
 
 ## Configuration
 
@@ -152,6 +191,23 @@ Verify the provider before running the app:
 .\.venv\Scripts\python.exe scripts\check_agent_loop.py
 ```
 
+## Data sources and provenance
+
+| Source | Type | Size | SHA-256 (prefix) | Retrieved |
+|---|---|---|---|---|
+| NYC Housing Maintenance Code (Title 27, Ch. 2) | RAG corpus | 76 pages, 490 chunks | `95083768cee702d3` | `<date>` |
+| ABCs of Housing (HPD) | RAG corpus | 35 pages, 89 chunks | `d4be06b395b05cb7` | `<date>` |
+| HPD Guidelines for Repairs & Maintenance | RAG corpus | 27 pages, 46 chunks | `720348bce5c235e9` | `<date>` |
+| HPD Housing Maintenance Code Complaints (grouped) | Structured taxonomy | 641 rows, 11,586,134 complaints | `58b85aada81d5665` | `<date>` |
+
+Corpus totals: 625 chunks, approximately 833,000 characters, in the
+`official-housing-v1` namespace. The taxonomy's four source priority labels
+(`IMMEDIATE EMERGENCY`, `EMERGENCY`, `HAZARDOUS`, `NON EMERGENCY`) are mapped
+once at ingestion to the three-value vocabulary the agent reasons over.
+
+The checked-in PDFs and CSV are local snapshots, not live fetches. Add the
+source URL and retrieval date for each before relying on them as current.
+
 ## Official PDF ingestion
 
 The RAG corpus consists only of the three official PDFs in `data/`. Validate
@@ -161,11 +217,8 @@ page extraction and chunking locally first; this makes no service calls:
 .\.venv\Scripts\python.exe scripts\load_official_sources.py --dry-run
 ```
 
-Do not upload immediately after a dry run. First evaluate candidate chunking
-settings on the fixed tuning set, choose a versioned namespace, and record the
-winning configuration. Then deliberately upload that corpus once to embed all
-chunks through LLMod and synchronize Pinecone plus the Supabase
-`rag_documents`/`rag_chunks` manifests:
+Then upload once to embed all chunks through LLMod and synchronize Pinecone plus
+the Supabase `rag_documents`/`rag_chunks` manifests:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\load_official_sources.py --upload
@@ -173,17 +226,23 @@ chunks through LLMod and synchronize Pinecone plus the Supabase
 
 The upload is idempotent and uses the namespace configured by
 `PINECONE_NAMESPACE`. Unchanged chunks are not embedded again; use `--force`
-only when you intentionally need to rebuild every vector. After upload, run
-the live retrieval check explicitly:
+only when you intentionally need to rebuild every vector. Stale chunks are
+removed from both Pinecone and Supabase based on the Supabase manifest. After
+upload, run the live retrieval check explicitly:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\check_rag.py --live
 ```
 
+Chunking parameters (size 1600, overlap 220, `top_k` 4) are the recorded
+baseline. See `TODO.md` for the evaluation-driven workflow intended for changing
+them; they should not be adjusted by intuition.
+
 ## Current limitations
 
 - The public assignment flow is one prompt per `/api/execute` call; it does not
-  yet preserve a case across follow-up prompts.
+  yet preserve a case across follow-up prompts. Replies that ask the tenant for
+  more detail therefore cannot receive an answer in this deployment.
 - `api/lib/vendors.py` returns deterministic demonstration vendors and time
   windows. It does not reserve Supabase slots or contact anyone.
 - Common clogged-toilet/drain cases use a compact guarded path: deterministic
@@ -195,10 +254,20 @@ the live retrieval check explicitly:
   available in that fallback mode.
 - The portal is the delivered channel. WhatsApp, SMS, and email are conceptual
   channels from the project presentation, not current integrations.
+- The ABCs of Housing PDF uses a multi-column layout that the text extractor
+  reads linearly, so some retrieved chunks from that document have interleaved
+  or broken wording. Retrieval quality is stronger against the Housing
+  Maintenance Code. The agent cites sources rather than quoting these chunks
+  verbatim to tenants.
+- Behaviour is documented from single runs per scenario, not measured success
+  rates. Retrieval is similarity-ranked and non-deterministic: the same mold
+  prompt cited different in-corpus sources across two runs, both correct.
 - The checked-in official PDFs are local snapshots whose freshness still needs
   release verification. Retrieved guidance is source-grounded information, not
   legal advice.
 - Emergency guidance has a deterministic fallback, but the app does not contact
   emergency services, building management, tenants, or contractors.
 
-See `TODO.md` for the prioritized path from this baseline to submission.
+Recorded behaviour for the delivered release is in
+`evaluation/live-smoke-set-2026-08-23.md`. `TODO.md` records deliberate
+out-of-scope work and the path beyond this release.

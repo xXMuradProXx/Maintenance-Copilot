@@ -1,0 +1,29 @@
+{
+  "prompt": "The kitchen sink is clogged and water drains very slowly. Apartment 4B.",
+  "requested_at": "2026-08-23T14:03:51.435Z",
+  "http_status": 200,
+  "payload": {
+    "status": "ok",
+    "error": null,
+    "response": "Thanks for reporting the clogged drain in apartment 4B. Stop using the affected fixture if the water level is rising. Avoid chemical drain cleaners while the cause is unknown. Is only this drain affected, or are other sinks or fixtures backing up too? Is any water overflowing or leaking outside the fixture? I can offer these simulated plumber windows: option 1: Rapid Rooter Plumbing, Monday, Aug 24, 10:00–12:00; option 2: BlueLine Plumbing & Heating, Monday, Aug 24, 14:00–16:00; option 3: Rapid Rooter Plumbing, Tuesday, Aug 25, 9:00–11:00. Reply with the option number you prefer. This is a demonstration only: no calendar is reserved and no contractor is contacted.",
+    "steps": [
+      {
+        "module": "SupervisorAgent",
+        "prompt": {
+          "system_prompt": "You are the tenant-facing voice of Maintenance Copilot.\nRewrite the approved operational draft into warm, concise plain language while preserving every:\n- safety or containment instruction;\n- question;\n- numbered vendor option, vendor name, and time label;\n- statement that scheduling is only a simulation and no calendar/person was contacted.\n\nDo not add a manager escalation, legal claim, diagnosis, repair instruction, vendor, or time. Do not\nsay anything was booked. Return only the tenant-facing reply, without a heading or markdown.",
+          "user_prompt": "[{\"role\": \"user\", \"content\": \"{\\\"tenant_message\\\": \\\"The kitchen sink is clogged and water drains very slowly. Apartment 4B.\\\", \\\"approved_draft\\\": \\\"Thanks for reporting the clogged drain in apartment 4B. Stop using the affected fixture if the water level is rising. Avoid chemical drain cleaners while the cause is unknown. Is only this drain affected, or are other sinks or fixtures backing up too? Is any water overflowing or leaking outside the fixture? I can offer these simulated plumber windows: option 1: Rapid Rooter Plumbing, Monday, Aug 24, 10:00–12:00; option 2: BlueLine Plumbing & Heating, Monday, Aug 24, 14:00–16:00; option 3: Rapid Rooter Plumbing, Tuesday, Aug 25, 9:00–11:00. Reply with the option number you prefer. This is a demonstration only: no calendar is reserved and no contractor is contacted.\\\"}\"}]"
+        },
+        "response": {
+          "model": "MB5R2CF-azure/gpt-5.4-mini",
+          "content": "Thanks for reporting the clogged drain in apartment 4B. Stop using the affected fixture if the water level is rising. Avoid chemical drain cleaners while the cause is unknown. Is only this drain affected, or are other sinks or fixtures backing up too? Is any water overflowing or leaking outside the fixture? I can offer these simulated plumber windows: option 1: Rapid Rooter Plumbing, Monday, Aug 24, 10:00–12:00; option 2: BlueLine Plumbing & Heating, Monday, Aug 24, 14:00–16:00; option 3: Rapid Rooter Plumbing, Tuesday, Aug 25, 9:00–11:00. Reply with the option number you prefer. This is a demonstration only: no calendar is reserved and no contractor is contacted.",
+          "tool_calls": [],
+          "token_usage": {
+            "input_tokens": 306,
+            "output_tokens": 169,
+            "total_tokens": 475
+          }
+        }
+      }
+    ]
+  }
+}

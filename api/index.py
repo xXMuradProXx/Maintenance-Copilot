@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from lib.agent import (
@@ -570,12 +570,11 @@ _ARCHITECTURE_PNG = os.path.join(
 @app.get("/api/model_architecture")
 @app.get("/model_architecture")
 def model_architecture():
-	if not os.path.exists(_ARCHITECTURE_PNG):
-		return JSONResponse(
-			status_code=500,
-			content={"error": "Model architecture image is unavailable."},
-		)
-	return FileResponse(_ARCHITECTURE_PNG, media_type="image/png")
+	if os.path.exists(_ARCHITECTURE_PNG):
+		return FileResponse(_ARCHITECTURE_PNG, media_type="image/png")
+	# public/ is served by Vercel's static layer even when it is not bundled
+	# into the function; redirect there rather than failing the required endpoint.
+	return RedirectResponse(url="/model-architecture.png", status_code=307)
 
 
 @app.get("/")

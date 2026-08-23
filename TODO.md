@@ -70,9 +70,9 @@ Do not let the simulated booking work delay or weaken the assignment-required `/
 - [x] If structured case data is exposed, show a compact work-order summary with status, category/code, urgency, unit, next action, citations, and appointment state. The assignment response does not expose structured case data, so all dead case/status UI was removed.
 - [x] Improve loading and failure states: visible elapsed time, disabled/working button state, retry action, validation messages, provider/database-specific safe errors, and preservation of the typed prompt on failure.
 - [x] Make example prompts easier to scan and clearly label normal, ambiguous, urgent, and emergency scenarios.
-- [ ] Test responsive layouts at roughly 1440 px, 1024 px, 768 px, and 390 px widths. Avoid squeezed two-column layouts and nested scroll areas on small screens.
-- [ ] Test keyboard-only use, focus order, accessible names, color contrast, reduced motion, screen-reader announcements, long/unbroken text, and 200% zoom.
-- [ ] Verify the UI states visually: fresh, loading, success with 1 step, success with 6 steps, emergency, validation error, provider timeout, and mobile.
+- [x] Test responsive layouts at roughly 1440 px, 1024 px, 768 px, and 390 px widths. Avoid squeezed two-column layouts and nested scroll areas on small screens.
+- [x] Test keyboard-only use, focus order, accessible names, color contrast, reduced motion, screen-reader announcements, long/unbroken text, and 200% zoom.
+- [x] Verify the UI states visually: fresh, loading, success with 1 step, success with 6 steps, emergency, validation error, provider timeout, and mobile.
 - [x] Check external font behavior and use robust fallbacks or self-hosted assets so the UI still looks intentional when Google Fonts is blocked or slow. The public page now uses a system-only font stack and makes no external font request.
 - [x] Get one human visual review of the redesign. User review on 2026-08-12: “UI looks pretty nice.” Repeat a final review after browser-state testing and any simulated-booking UI changes.
 
